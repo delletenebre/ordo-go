@@ -1,5 +1,8 @@
 class_name OrdoHud
 extends Control
+const Spirits = preload("res://scripts/spirits.gd")
+const SpiritVisuals = preload("res://scripts/spirit_visuals.gd")
+const AimPreview = preload("res://scripts/aim_preview.gd")
 const Catalog = preload("res://scripts/catalog.gd")
 var game
 var font: Font = ThemeDB.fallback_font
@@ -26,10 +29,26 @@ var room_label: Label
 var help_open := false
 var reward_choice := 0
 var scale_factor := 1.0
+var aim_halo: GradientTexture2D
+var aim_band: GradientTexture2D
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Cached falloffs keep the aim luminous even without 3D bloom (mobile renderer).
+	var falloff := Gradient.new()
+	falloff.offsets = PackedFloat32Array([0.0, 0.18, 0.45, 1.0])
+	falloff.colors = PackedColorArray([Color.WHITE, Color(1,1,1,0.65), Color(1,1,1,0.16), Color(1,1,1,0)])
+	aim_halo = GradientTexture2D.new(); aim_halo.gradient = falloff
+	aim_halo.width = 128; aim_halo.height = 128
+	aim_halo.fill = GradientTexture2D.FILL_RADIAL
+	aim_halo.fill_from = Vector2(0.5,0.5); aim_halo.fill_to = Vector2(1,0.5)
+	var band := Gradient.new()
+	band.offsets = PackedFloat32Array([0,0.25,0.5,0.75,1])
+	band.colors = PackedColorArray([Color(1,1,1,0),Color(1,1,1,0.12),Color.WHITE,Color(1,1,1,0.12),Color(1,1,1,0)])
+	aim_band = GradientTexture2D.new(); aim_band.gradient = band
+	aim_band.width = 8; aim_band.height = 128
+	aim_band.fill_from = Vector2(0,0); aim_band.fill_to = Vector2(0,1)
 	build_menu()
 
 func style(color: Color = Color("182633"), border: Color = Color("80715c")) -> StyleBoxFlat:
@@ -43,7 +62,9 @@ func button(text_value: String, parent: Node, callback: Callable) -> Button:
 	b.add_theme_font_size_override("font_size", 19); b.add_theme_color_override("font_color", cream)
 	b.add_theme_stylebox_override("normal", style()); b.add_theme_stylebox_override("hover", style(Color("263b47"), gold))
 	b.add_theme_stylebox_override("focus", style(Color(0, 0, 0, 0), gold)); b.add_theme_stylebox_override("pressed", style(Color("354957"), cream))
-	b.pressed.connect(callback); parent.add_child(b); return b
+	b.pressed.connect(func():game.arena.sound("ui");callback.call())
+	b.focus_entered.connect(func():game.arena.sound("ui"))
+	parent.add_child(b); return b
 
 func label_node(text_value: String, parent: Node, size_value: int = 17, color: Color = Color("c5c9cd")) -> Label:
 	var l := Label.new(); l.text = text_value; l.add_theme_font_size_override("font_size", size_value)
@@ -107,14 +128,101 @@ func world_ring(center: Vector2, radius: float, color: Color, width: float = 2.0
 	if fill: draw_colored_polygon(points, Color(color, color.a * 0.10))
 	draw_polyline(points, color, width, true)
 
-func dashed(a: Vector2, b: Vector2, color: Color, width: float = 2.0) -> void:
+func arrow(a: Vector2, b: Vector2, color: Color, width: float = 2.0, dotted: bool = false) -> void:
 	var length := a.distance_to(b)
-	if length < 1: return
-	var dir := (b - a).normalized()
-	var count := int(length / 16)
-	for i in count: draw_line(a + dir * i * 16, a + dir * minf(length, i * 16 + 8), color, width, true)
-	var end := b - dir * 12
-	draw_polyline(PackedVector2Array([end + dir.orthogonal() * 6, b, end - dir.orthogonal() * 6]), color, width, true)
+	if length < 8: return
+	var direction := (b-a)/length
+	var tip_size := 11.0 + width
+	var stem_end := b-direction*tip_size*0.65
+	if dotted:
+		aim_segment(a,stem_end,color,0.0)
+	else:
+		aim_capsule(a,stem_end,Color(color,color.a*0.16),width+8)
+		aim_capsule(a,stem_end,color,width)
+	var back := b-direction*tip_size
+	var points := PackedVector2Array([b,back+direction.orthogonal()*tip_size*0.48,back+direction*tip_size*0.20,back-direction.orthogonal()*tip_size*0.48])
+	draw_colored_polygon(points,color)
+
+func aim_light(at: Vector2, radius: float, color: Color) -> void:
+	draw_texture_rect(aim_halo,Rect2(at-Vector2.ONE*radius,Vector2.ONE*radius*2),false,color)
+
+func aim_capsule(a: Vector2, b: Vector2, color: Color, width: float) -> void:
+	draw_line(a,b,color,width,true)
+	draw_circle(a,width*0.5,color); draw_circle(b,width*0.5,color)
+
+func aim_segment(a: Vector2, b: Vector2, color: Color, traveled: float) -> void:
+	var length := a.distance_to(b)
+	if length < 1.0: return
+	var direction := (b-a)/length
+	# A soft continuous light bed ties the separated white dashes into one path.
+	draw_set_transform(a*scale_factor,direction.angle(),Vector2.ONE*scale_factor)
+	draw_texture_rect(aim_band,Rect2(0,-17,length,34),false,Color(color,color.a*0.72))
+	draw_set_transform(Vector2.ZERO,0,Vector2.ONE*scale_factor)
+	var distance := fposmod(clock*32.0-traveled,25.0)-25.0
+	while distance < length:
+		var begin := maxf(0,distance); var end := minf(length,distance+14.0)
+		if end > begin:
+			var p := a+direction*begin; var q := a+direction*end
+			aim_light((p+q)*0.5,19,Color(color,color.a*0.65))
+			aim_capsule(p,q,Color(color,color.a*0.35),11.0)
+			aim_capsule(p,q,color,6.5)
+			aim_capsule(p,q,Color(Color.WHITE.lerp(color,0.10),color.a),3.5)
+		distance += 25.0
+
+func aim_spark(at: Vector2, color: Color, radius: float) -> void:
+	var pulse := 0.94+0.06*sin(clock*4.0)
+	aim_light(at,radius*2.0,Color(color,color.a*0.8))
+	aim_light(at,radius*0.72,Color(color,color.a*0.95))
+	for i in 8:
+		var ray := Vector2.from_angle(i*TAU/8.0+0.18)
+		var reach := radius*pulse*(1.0 if i%2==0 else 0.58)
+		var side := ray.orthogonal()*2.3
+		draw_colored_polygon(PackedVector2Array([at+ray*reach,at+side,at-ray*3,at-side]),color)
+		draw_colored_polygon(PackedVector2Array([at+ray*reach*0.87,at+side*0.45,at-ray*2,at-side*0.45]),Color(Color.WHITE,color.a))
+	draw_circle(at,3.3,Color(Color.WHITE,color.a))
+
+func draw_aim(player: Dictionary, selected_player: bool) -> void:
+	var color: Color = Catalog.COLORS[int(player.id)]
+	var center := Vector2(float(player.x),float(player.z)); var direction := Vector2.from_angle(float(player.angle))
+	var start := center+direction*(float(player.r)+0.15)
+	var preview := AimPreview.trace(game.sim,player)
+	var points: PackedVector2Array = preview.points
+	# The solver traces the token's center; the visible spark belongs on its rim
+	# where it touches the target, especially when the two bodies are adjacent.
+	if preview.kind in ["enemy","ally"]:
+		var incoming := (points[-1]-points[-2]).normalized()
+		points[-1] += incoming*float(player.r)
+	var light := Color("168dff") if int(player.id)==0 else color
+	light.a = 1.0 if selected_player else 0.75
+	var traveled := 0.0
+	for i in range(1,points.size()):
+		var from := start if i == 1 else points[i-1]
+		# A nearby obstacle may leave no visible stem. Keep its impact marker.
+		if (points[i]-from).dot((points[i]-points[i-1]).normalized()) > 0.05:
+			var a := project(from,0.17); var b := project(points[i],0.17)
+			aim_segment(a,b,Color(light,light.a*(1.0 if i==1 else 0.83)),traveled)
+			traveled += a.distance_to(b)
+	# Draw contacts after the entire ribbon so the outgoing leg cannot cover them.
+	for i in range(1,points.size()-1):
+		aim_spark(project(points[i],0.17),light,19.0)
+	var endpoint: Vector2 = points[-1]
+	var marker := project(endpoint,0.18)
+	if preview.kind != "stop":
+		aim_spark(marker,light,29.0)
+	else:
+		# An open-lane endpoint is directional; only real contacts get a starburst.
+		var heading := (marker-project(points[-2],0.18)).normalized()
+		var wing := heading.orthogonal()*7.0
+		aim_light(marker,23,Color(light,0.75))
+		for side in [-1.0,1.0]:
+			var tail: Vector2 = marker-heading*12+wing*side
+			aim_capsule(tail,marker,light,6)
+			aim_capsule(tail,marker,Color("effaff"),2.5)
+	# Power is readable next to the moving token without hiding its emblem.
+	if selected_player:
+		var anchor := project(center,0.65)+Vector2(0,25)
+		draw_line(anchor-Vector2(18,0),anchor+Vector2(18,0),Color("142334"),5,true)
+		draw_line(anchor-Vector2(18,0),anchor+Vector2(-18+36*float(player.power),0),color,3,true)
 
 func _process(dt: float) -> void:
 	if game == null: return
@@ -142,6 +250,51 @@ func _process(dt: float) -> void:
 	pulse_events = pulse_events.filter(func(e): return e.life < 1.2)
 	queue_redraw()
 
+func draw_wave_clock(sim) -> void:
+	# Five visible milestones slide through the nine-wave match without hiding its ends.
+	var start:=clampi(int(sim.wave)-3,0,4)
+	var capsule:=style(Color(.012,.016,.025,.92),Color(.14,.17,.21,.7))
+	capsule.set_corner_radius_all(27);capsule.set_border_width_all(1)
+	draw_style_box(capsule,Rect2(624,62,356,59))
+	var first:=Vector2(647,86);var spacing:=77.0
+	draw_line(first,first+Vector2(spacing*4,0),Color("111720"),9,true)
+	draw_line(first,first+Vector2(spacing*4,0),Color("65717a"),3,true)
+	for i in 5:
+		var wave:=start+i+1;var point:=first+Vector2(spacing*i,0)
+		var done:=wave<=int(sim.wave)
+		var c:=Color("ff635d") if done else Color("78838f")
+		if done and i>0:draw_line(point-Vector2(spacing,0),point,Color("df5558"),3,true)
+		draw_circle(point,15,Color("080c12"));draw_circle(point,12,c)
+		draw_arc(point,11,-PI*.95,-PI*.12,20,c.lightened(.45),2,true)
+		if wave==int(sim.wave):draw_arc(point,15,0,TAU,48,Color(c,.35),3,true)
+		if i>0 and game.arena.coal_portrait:
+			var tint:=Color.WHITE if wave>=sim.wave else Color(.65,.65,.65,.8)
+			draw_texture_rect(game.arena.coal_portrait,Rect2(point+Vector2(-24,-64),Vector2(48,48)),false,tint)
+			if wave in [3,6,9]:
+				# A small ember crown marks the boss milestones.
+				for j in 3:draw_circle(point+Vector2((j-1)*5,-62),1.7,gold)
+	text_at("%02d / 09"%sim.wave,Vector2(625,111),11,muted,HORIZONTAL_ALIGNMENT_CENTER,356)
+	var center:=Vector2(1490,85)
+	var color:=Color("47d8ff") if sim.phase=="plan" else gold
+	draw_circle(center,58,Color(.012,.022,.039,.93))
+	draw_arc(center,57,0,TAU,96,Color("142537"),3,true)
+	var total:float=Catalog.wave_spec(sim.wave,sim.players.size(),sim.difficulty).planning
+	var fraction:=clampf(float(sim.timer)/total,0,1) if sim.phase=="plan" else 0.0
+	for i in 16:
+		var a:float=-PI/2+i*TAU/16
+		var filled:=float(i)/16<fraction
+		draw_arc(center,49,a+.033,a+TAU/16-.033,8,color if filled else Color("495466"),8,true)
+	# Luminous hourglass, drawn as one continuous silhouette at television scale.
+	var hourglass:=PackedVector2Array([Vector2(-14,-20),Vector2(14,-20),Vector2(12,-11),Vector2(3,-1),Vector2(3,2),Vector2(12,12),Vector2(14,21),Vector2(-14,21),Vector2(-12,12),Vector2(-3,2),Vector2(-3,-1),Vector2(-12,-11),Vector2(-14,-20)])
+	for i in hourglass.size():hourglass[i]+=center
+	draw_polyline(hourglass,Color(color,.16),8,true);draw_polyline(hourglass,Color("d9f9ff"),2.6,true)
+	var sand:float=.25+.75*fraction
+	draw_colored_polygon(PackedVector2Array([center+Vector2(-8,-12)*Vector2(sand,1),center+Vector2(8,-12)*Vector2(sand,1),center+Vector2(0,-3)]),color)
+	draw_colored_polygon(PackedVector2Array([center+Vector2(-9,17),center+Vector2(9,17),center+Vector2(0,7+fraction*7)]),color)
+	var label: String={"plan":"ПРИЦЕЛ","resolve":"БРОСОК","enemy":"АТАКА","clear":"ПЕРЕДЫШКА","reward":"ДАР","win":"РАССВЕТ","lose":"УГАС"}.get(sim.phase,"")
+	text_at(label,center+Vector2(-75,82),12,color,HORIZONTAL_ALIGNMENT_CENTER,150)
+	if sim.phase=="plan":text_at(str(ceili(sim.timer)),center+Vector2(-25,40),11,color,HORIZONTAL_ALIGNMENT_CENTER,50)
+
 func _draw() -> void:
 	if game == null: return
 	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE * scale_factor)
@@ -165,31 +318,21 @@ func _draw() -> void:
 			draw_line(a, b, Color(Catalog.COLORS[key], opacity * 0.8), 4 * opacity, true)
 			draw_line(a, b, Color(cream, opacity * 0.65), 1.6 * opacity, true)
 	# The tabletop remains the primary surface; all HUD elements sit near its perimeter.
-	draw_rect(Rect2(0, 0, 1600, 110), Color(0.02, 0.03, 0.047, 0.84))
-	text_at("ORDO", Vector2(35, 54), 32, cream)
-	text_at("ХРАНИТЕЛИ ОЧАГА", Vector2(36, 80), 11, gold)
-	for i in 9:
-		var c := gold if i < sim.wave else Color("44505e")
-		var p := Vector2(636 + i * 39, 34)
-		if i in [2, 5, 8]:
-			draw_colored_polygon(PackedVector2Array([p + Vector2(0, -7), p + Vector2(7, 0), p + Vector2(0, 7), p + Vector2(-7, 0)]), c)
-		else: draw_circle(p, 4, c)
-	text_at("%02d / 09   ·   %s" % [sim.wave, Catalog.WAVE_NAMES[maxi(0, mini(8, sim.wave - 1))]], Vector2(525, 76), 20, cream, HORIZONTAL_ALIGNMENT_CENTER, 550)
-	var phase_name: String = {"plan": "ПЛАНИРОВАНИЕ", "resolve": "БРОСОК", "enemy": "ХОД ПРОТИВНИКА", "clear": "ОЧАГ ЗАЩИЩЁН", "reward": "НОВАЯ НИТЬ", "win": "РАССВЕТ", "lose": "ОГОНЬ ПОГАС"}.get(sim.phase, "")
-	text_at(phase_name, Vector2(1200, 47), 15, gold, HORIZONTAL_ALIGNMENT_RIGHT, 355)
-	text_at("%02d" % ceili(sim.timer) if sim.phase == "plan" else "ХОД %d" % sim.turn, Vector2(1325, 82), 25, cream, HORIZONTAL_ALIGNMENT_RIGHT, 230)
+	draw_wave_clock(sim)
 	for i in sim.players.size():
-		var p: Dictionary = sim.players[i]; var c: Color = Catalog.COLORS[i]; var y: float = 156.0 + i * 139.0
-		panel(Rect2(25, y - 33, 160, 112), Color(0.027, 0.04, 0.059, 0.9), c.darkened(0.5) if game.selected != i else c)
-		text_at(Catalog.SYMBOLS[i], Vector2(39, y + 1), 32, c)
-		text_at(Catalog.NAMES[i], Vector2(81, y - 6), 15, c)
-		text_at("P%d  %s" % [i + 1, "ГОТОВ" if p.ready else ("ПОГАС" if p.hp <= 0 else "")], Vector2(81, y + 16), 12, cream)
+		var p: Dictionary = sim.players[i]; var c: Color = Catalog.COLORS[i]; var y: float = 158.0 + i * 102.0
+		var badge:=Vector2(62,y)
+		draw_circle(badge,31,Color(c,0.08))
+		draw_circle(badge,27,Color(0.015,0.035,0.048,0.91))
+		draw_arc(badge,27,0,TAU,64,Color(c,1.0 if game.selected==i else 0.72),3.5,true)
+		text_at(Catalog.SYMBOLS[i],badge+Vector2(-17,11),33,c)
 		for hp in int(p.max_hp):
-			draw_circle(Vector2(43 + hp * minf(16.0, 115.0 / maxf(1, float(p.max_hp) - 1)), y + 37), 4, c if hp < int(p.hp) else Color("46505b"))
-		text_at("✦ %d" % int(p.charges), Vector2(39, y + 65), 15, gold)
+			draw_circle(Vector2(110+hp*minf(18.0,82.0/maxf(1,float(p.max_hp)-1)),y-3),5,c if hp<int(p.hp) else Color("35424f"))
+		text_at("P%d · %s"%[i+1,"ГОТОВ" if p.ready else Catalog.NAMES[i]],Vector2(109,y-23),11,c)
+		text_at("✦ %d"%int(p.charges),Vector2(109,y+22),13,gold)
 		var statuses: Array = []
 		for status in p.statuses.keys(): statuses.append({"frost": "ХОЛОД", "snare": "НИТИ", "weak": "СЛАБОСТЬ", "burn": "ГОРЕНИЕ"}[status])
-		text_at(" · ".join(statuses), Vector2(80, y + 65), 10, Color("a9cee5"))
+		text_at(" · ".join(statuses), Vector2(109, y + 39), 10, Color("a9cee5"))
 		if p.hp > 0:
 			var center := Vector2(float(p.x), float(p.z))
 			if i == game.selected: world_ring(center, 0.6, Color(c, 0.75), 2)
@@ -197,17 +340,28 @@ func _draw() -> void:
 			if p.statuses.has("snare"): world_ring(center, 0.53, Color("cab7df"), 3)
 			if p.shield > 0: world_ring(center, 1.9 if i == 1 else 0.62, Color(gold, 0.6), 3, true)
 			if sim.phase == "plan":
-				var endpoint := center + Vector2(cos(float(p.angle)), sin(float(p.angle))) * (0.8 + float(p.power) * 2.1)
-				dashed(project(center, 0.4), project(endpoint, 0.4), Color(c, 1.0 if i == game.selected else 0.45), 4 if i == game.selected else 2)
-				if p.ready: text_at("✓", project(center, 0.8) + Vector2(-10, -14), 27, c)
-	if sim.phase in ["plan", "enemy"]:
+				draw_aim(p,i==game.selected)
+				if p.ready: text_at("✓",project(center,0.8)+Vector2(-10,-14),27,c)
+			draw_spirit_badge(p,center)
+	if sim.phase in ["plan","enemy"]:
 		for e in sim.enemies:
-			var p := Vector2(float(e.x), float(e.z)); var target := Vector2(float(e.tx), float(e.tz))
-			var danger := Color(1.0, 0.49, 0.35, 0.5 + sin(clock * 4) * 0.1)
-			if e.attack == "rush": dashed(project(p), project(target), danger, 2)
-			elif e.attack == "ring":
-				world_ring(Vector2.ZERO, 2.4 if sim.turn % 2 == 0 else 4.5, danger, 5)
-			else: world_ring(target if e.attack != "slam" else p, 1.6 if e.kind == "weaver" else 1.05, danger, 2, true)
+			if int(e.stun)>0 or (sim.phase=="enemy" and bool(e.fired)): continue
+			var p := Vector2(float(e.x),float(e.z)); var target := Vector2(float(e.tx),float(e.tz))
+			var direction := (target-p).normalized()
+			var danger := Color(1.0,1.0,1.0,0.62)
+			if e.attack=="rush":
+				# Display only the start of a rush, keeping the arena uncluttered.
+				var end := p+direction*minf(1.45,p.distance_to(target))
+				arrow(project(p+direction*(float(e.r)+0.12)),project(end),danger,1.5,true)
+			elif e.attack=="ring":
+				var radius := 2.4 if sim.turn%2==0 else 4.5
+				world_ring(Vector2.ZERO,radius-0.8,Color(danger,0.27),1.5)
+				world_ring(Vector2.ZERO,radius+0.8,Color(danger,0.27),1.5)
+				world_ring(Vector2.ZERO,radius,danger,2.5)
+			else:
+				var radius := 1.4 if e.attack=="slam" else (1.1 if e.attack=="frost" else (1.6 if e.kind=="weaver" else 1.05))
+				world_ring(p if e.attack=="slam" else target,radius,danger,2,true)
+
 	for e in sim.enemies:
 		var p := Vector2(float(e.x), float(e.z)); var screen := project(p, float(e.r) * 2.4)
 		if e.max_hp > 5:
@@ -219,6 +373,12 @@ func _draw() -> void:
 			for hp in int(e.max_hp): draw_circle(screen + Vector2((hp - (int(e.max_hp) - 1) * 0.5) * 10, -8), 3, gold if hp < e.hp else Color("41434b"))
 	for h in sim.hazards: world_ring(Vector2(float(h.x), float(h.z)), float(h.r), Color(0.55, 0.8, 0.95, 0.55), 2, true)
 	for item in sim.pickups:
+		if item.kind=="spirit":
+			var point:=Vector2(float(item.x),float(item.z));var anchor:=project(point,0.2)
+			for pip in maxi(0,int(item.expires)-sim.turn):draw_circle(anchor+Vector2(-8+pip*8,23),2.4,gold)
+			if (get_local_mouse_position()/scale_factor).distance_to(anchor)<27:
+				text_at(Spirits.TYPES[item.spirit].name,anchor+Vector2(-70,-30),16,cream,HORIZONTAL_ALIGNMENT_CENTER,140)
+			continue
 		var p := project(Vector2(float(item.x), float(item.z)), 0.3)
 		draw_circle(p, 15, Color(0.02, 0.09, 0.09, 0.8))
 		text_at("+" if item.kind == "heart" else "✦", p + Vector2(-8, 8), 24, Color("92e2bc"))
@@ -231,8 +391,33 @@ func _draw() -> void:
 		var e: Dictionary = event.event; var t: float = event.life
 		var point := Vector2(float(e.x), float(e.z)); var c := Color(gold, maxf(0, 1 - t))
 		if int(e.color) >= 0: c = Color(Catalog.COLORS[int(e.color)], maxf(0, 1 - t))
+		if e.kind=="impact" and t<0.25:
+			var burst:=project(point,0.4);var alpha:=pow(1-t/0.25,1.5)
+			for ray_index in 8:
+				var ray:=Vector2.from_angle(ray_index*TAU/8)
+				var extent:float=(35 if ray_index%2==0 else 21)*(0.7+t*3)
+				draw_line(burst+ray*4,burst+ray*extent,Color(gold,alpha*.14),8,true)
+				draw_line(burst+ray*4,burst+ray*extent,Color("fff3cb",alpha),2.1,true)
 		if e.kind in ["impact", "blast", "shield", "ice", "death", "clear"]: world_ring(point, 0.2 + t * float(e.strength) * 1.5, c, 3 * maxf(0.1, 1 - t))
-		if e.kind in ["damage", "hurt", "heal", "fire_hurt"]: text_at(e.text, project(point, 1.0) + Vector2(-8, -t * 65), 25, c)
+		if e.kind in ["damage","hurt","heal","fire_hurt"]:
+			var strong:=float(e.strength)>=3.0
+			var base_size:=43.0 if strong else 33.0
+			var pop:=1.0+0.32*exp(-t*13.0)*sin(t*22.0)
+			var size_value:=int(base_size*pop)
+			var alpha:=1.0-smoothstep(0.72,1.2,t)
+			var tint:=Color("fff2ca") if e.kind=="damage" else (Color("8fffc1") if e.kind=="heal" else Color("ff8585"))
+			if strong:tint=Color("ffbd64")
+			var origin:=project(point,1.0)+Vector2(-12+posmod(int(e.id),3)*7,-15-t*63)
+			draw_string_outline(font,origin,e.text,HORIZONTAL_ALIGNMENT_LEFT,-1,size_value,6,Color(0.035,0.023,0.032,alpha))
+			draw_string(font,origin,e.text,HORIZONTAL_ALIGNMENT_LEFT,-1,size_value,Color(tint,alpha))
+		if e.kind=="mend_thread":
+			var from:=project(point,0.6);var to:=project(Vector2.ZERO,0.7);var flight:=from.lerp(to,smoothstep(0,0.7,t))+Vector2(0,-sin(clampf(t/.7,0,1)*PI)*55)
+			if t<0.7:draw_circle(flight,5,Color("d8b6ff"))
+	if game.arena.combo_hits>=2 and game.arena.clock-game.arena.combo_last<1.0:
+		var message:="КОМБО ×%d"%game.arena.combo_hits
+		var opacity:=1.0-smoothstep(0.6,1.0,game.arena.clock-game.arena.combo_last)
+		draw_string_outline(font,Vector2(660,153),message,HORIZONTAL_ALIGNMENT_CENTER,280,26,5,Color(0.05,0.025,0.04,opacity))
+		draw_string(font,Vector2(660,153),message,HORIZONTAL_ALIGNMENT_CENTER,280,26,Color(gold,opacity))
 	panel(Rect2(310, 896, 980, 78), Color(0.025, 0.04, 0.057, 0.95), Color("52606a"))
 	if game.selected < sim.players.size():
 		var selected: Dictionary = sim.players[game.selected]
@@ -245,6 +430,24 @@ func _draw() -> void:
 	if sim.phase == "reward": draw_reward()
 	if sim.phase in ["win", "lose"]: draw_end()
 	if help_open: draw_help()
+
+func draw_spirit_badge(player: Dictionary, center: Vector2) -> void:
+	var spirit: Dictionary=player.get("spirit",{})
+	var kind: String=player.get("pending_spirit","") if spirit.is_empty() else spirit.kind
+	if kind=="":return
+	if spirit.is_empty() and game.arena.spirit_visuals.arriving(int(player.id)):return
+	var anchor:=project(center,1.02)+Vector2(22,-8)
+	draw_texture_rect(SpiritVisuals.icon(kind),Rect2(anchor-Vector2(20,20),Vector2(40,40)),false,Color(1,1,1,0.65 if spirit.is_empty() else 1.0))
+	if spirit.is_empty():
+		text_at("+",anchor+Vector2(15,17),14,gold)
+	else:
+		for pip in int(spirit.turns):draw_circle(anchor+Vector2(-4+pip*8,22),2.5,gold)
+	if int(player.id)==game.selected:
+		var description: String=Spirits.TYPES[kind].name+" · "+("следующий ход" if spirit.is_empty() else str(int(spirit.turns))+" ход.")
+		panel(Rect2(1170,790,380,67),Color(0.025,0.04,0.057,0.93),Color("857053"))
+		draw_texture_rect(SpiritVisuals.icon(kind),Rect2(1180,801,46,46),false)
+		text_at(description,Vector2(1238,817),15,gold)
+		text_at("H — описание духов узора",Vector2(1238,839),12,muted)
 
 func draw_reward() -> void:
 	draw_rect(Rect2(0, 110, 1600, 890), Color(0.025, 0.035, 0.055, 0.86))
@@ -275,7 +478,22 @@ func draw_end() -> void:
 	text_at("Enter / A — вернуться к очагу", Vector2(0, 626), 23, cream, HORIZONTAL_ALIGNMENT_CENTER, 1600)
 
 func draw_help() -> void:
-	draw_rect(Rect2(0, 110, 1600, 890), Color(0.025, 0.04, 0.06, 0.96))
-	text_at("КАК СОХРАНИТЬ ОГОНЬ", Vector2(300, 235), 38, cream)
-	var lines := ["1. Прочитайте оранжевые намерения врагов. Выберите направление и силу.", "2. Включите способность: Q / X. Подтвердите бросок: Space / A.", "3. Все готовые фишки летят одновременно. Неготовые защищаются на месте.", "4. Сильный удар ранит врага. Камни и другие враги продолжают цепочку.", "5. Затем атакуют враги. Обычное касание в ваш ход не ранит хранителя.", "6. Коснитесь погасшего союзника во время броска, чтобы поднять его.", "7. Между волнами каждый выбирает одну постоянную новую нить.", "", "Холод: −40% скорости. Нити: −30%. Слабость: −1 урон (минимум 1).", "Горение: 1 урон в конце хода. Эффекты длятся два окончания хода.", "", "Tab меняет фишку клавиатуры. Каждый геймпад управляет своей фишкой.", "B / Backspace отменяет готовность. M — звук. F11 — полный экран.", "H / Esc — закрыть эту памятку. В сетевой игре время продолжает идти."]
-	for i in lines.size(): text_at(lines[i], Vector2(300, 295 + i * 34), 20, muted)
+	draw_rect(Rect2(0,110,1600,890),Color(0.025,0.04,0.06,0.97))
+	text_at("ХРАНИТЕЛИ ОЧАГА",Vector2(100,178),30,cream)
+	var rules:=["Выберите направление и силу. Q / X — способность.","Space / A — готовность. B / Backspace — отмена.","Готовые фишки летят одновременно, остальные защищаются.","Сильный удар ранит врага. Оранжевые метки — его намерения.","Коснитесь погасшего союзника при броске, чтобы поднять его.","Tab — смена игрока. M — звук. F11 — весь экран."]
+	for i in rules.size():text_at(rules[i],Vector2(100,218+i*30),18,muted)
+	text_at("ДУХИ УЗОРА",Vector2(100,445),28,gold)
+	text_at("Подберите нашивку броском. Она включится со следующего хода. Один слот на хранителя.",Vector2(100,478),17,muted)
+	text_at("Новые нашивки — раз в два хода; лежат три хода. Занятый слот сохраняет нашивку для союзника.",Vector2(100,505),17,muted)
+	var keys:Array=Spirits.TYPES.keys()
+	for i in keys.size():
+		var kind:String=keys[i];var column:=i%2;var row:=i/2
+		var origin:=Vector2(100+column*740,555+row*83)
+		draw_texture_rect(SpiritVisuals.icon(kind),Rect2(origin,Vector2(56,56)),false)
+		text_at(Spirits.TYPES[kind].name,origin+Vector2(70,18),18,gold)
+		var description:String=Spirits.TYPES[kind].text
+		# Two lines keep descriptions readable on a TV.
+		var split:=description.find(". ")
+		text_at(description.substr(0,split+1) if split>=0 else description,origin+Vector2(70,40),14,muted)
+		if split>=0:text_at(description.substr(split+2),origin+Vector2(70,59),14,muted)
+	text_at("H / Esc — закрыть. В сетевом матче время продолжает идти.",Vector2(100,947),17,cream)

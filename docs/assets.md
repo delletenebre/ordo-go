@@ -1,6 +1,6 @@
 # Происхождение изображений
 
-Оба изображения созданы встроенным инструментом image_gen для этого проекта. Исходные генерации сохранены, финальные файлы скопированы в assets. Ручная правка или ретушь изображений не выполнялась. Войлочные фигуры, частицы, символы, швы, анимация огня и звуки создаются кодом.
+Первоначальные изображения созданы встроенным инструментом image_gen для этого проекта. Исходные генерации сохранены, финальные файлы скопированы в assets. Ручная правка или ретушь изображений не выполнялась. Войлочные фигуры, частицы, символы, швы, анимация огня и звуки создаются кодом.
 
 ## assets/shyrdak.png
 
@@ -9,3 +9,6 @@ Use case: stylized-concept. Asset type: production albedo texture for a circular
 ## assets/mountains.png
 
 Use case: stylized-concept. Asset type: 16:10 game environment backdrop for a handmade felt tabletop fantasy game. Wide panoramic night sky and distant Kyrgyz snowy mountains, everything is miniature needle-felt wool with fine fibers. Deep indigo and petrol blue palette, a small warm ivory moon upper right, delicate sparse stars, layered distant blue snowy mountains concentrated in the upper quarter and along left/right outer margins. Lower 70 percent is a very dark softly lit indigo felt valley with subtle atmospheric depth and generous unobstructed empty area; game arena will be rendered on top of it. Cinematic stop-motion miniature diorama, soft blue moon rim lighting, gentle haze, tactile wool textures, refined cozy fantasy mood. No arena, no table, no people, no characters, no text, no UI, no borders. Make the whole composition dark enough to contrast a warm golden game arena overlaid in center.
+
+
+Актуальные ковёр, фишки, камень, нашивки и аудио описаны в [generated-assets.md](generated-assets.md). Старая текстура shyrdak.png сохранена как исходная версия, сцена использует shyrdak-v2.png.

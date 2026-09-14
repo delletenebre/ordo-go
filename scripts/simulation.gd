@@ -1,6 +1,7 @@
 class_name OrdoSimulation
 extends RefCounted
 
+const Spirits = preload("res://scripts/spirits.gd")
 const Catalog = preload("res://scripts/catalog.gd")
 const RADIUS := 6.1
 const CORE_RADIUS := 0.92
@@ -39,7 +40,7 @@ func start(count: int, mode: int = 1, seed_value: int = 20260914) -> void:
 	max_fire = [10, 8, 6][difficulty]; fire = max_fire; kills = 0; event_id = 0; entity_id = 10
 	for i in clampi(count, 1, 4):
 		var a: float = PI * 0.5 + i * TAU / float(clampi(count, 1, 4))
-		players.append({"id": i, "x": cos(a) * 3.5, "z": sin(a) * 3.5, "vx": 0.0, "vz": 0.0, "r": 0.43, "mass": 1.2, "hp": 4, "max_hp": 4, "angle": a + PI, "power": 0.65, "ready": false, "ability": false, "charges": 2, "bonus_charges": 0, "damage": 0, "speed": 1.0, "armor": 0, "armor_per_wave": 0, "shield": 0, "boost": false, "statuses": {}, "reward": false})
+		players.append({"id": i, "x": cos(a) * 3.5, "z": sin(a) * 3.5, "vx": 0.0, "vz": 0.0, "r": 0.43, "mass": 1.2, "hp": 4, "max_hp": 4, "angle": a + PI, "power": 0.65, "ready": false, "ability": false, "charges": 2, "bonus_charges": 0, "damage": 0, "speed": 1.0, "armor": 0, "armor_per_wave": 0, "shield": 0, "boost": false, "statuses": {}, "reward": false, "spirit": {}, "pending_spirit": ""})
 	next_wave()
 
 func pos(e: Dictionary) -> Vector2:
@@ -54,9 +55,10 @@ func place(e: Dictionary, p: Vector2) -> void:
 func velocity(e: Dictionary, v: Vector2) -> void:
 	e.vx = v.x; e.vz = v.y
 
-func emit(kind: String, p: Vector2, color: int = -1, strength: float = 1.0, message: String = "") -> void:
+func emit(kind: String, p: Vector2, color: int = -1, strength: float = 1.0, message: String = "", details: Dictionary = {}) -> void:
 	event_id += 1
-	events.append({"id": event_id, "kind": kind, "x": p.x, "z": p.y, "color": color, "strength": strength, "text": message})
+	var event:={"id": event_id, "kind": kind, "x": p.x, "z": p.y, "color": color, "strength": strength, "text": message}
+	event.merge(details);events.append(event)
 	if events.size() > 100: events.pop_front()
 
 func spawn(kind: String, a: float, bonus_hp: int = 0) -> void:
@@ -65,7 +67,7 @@ func spawn(kind: String, a: float, bonus_hp: int = 0) -> void:
 	if float(def.radius) > 0.7: a += 0.5
 	var p := Vector2(cos(a), sin(a)) * (4.5 if float(def.radius) > 0.7 else 5.6)
 	var hp: int = int(def.hp) + bonus_hp
-	enemies.append({"id": entity_id, "kind": kind, "x": p.x, "z": p.y, "vx": 0.0, "vz": 0.0, "r": def.radius, "mass": def.mass, "hp": hp, "max_hp": hp, "angle": a + PI, "tx": 0.0, "tz": 0.0, "attack": "rush", "fired": false, "stun": 0, "jump": 0.0, "sx": p.x, "sz": p.y})
+	enemies.append({"id": entity_id, "kind": kind, "x": p.x, "z": p.y, "vx": 0.0, "vz": 0.0, "r": def.radius, "mass": def.mass, "hp": hp, "max_hp": hp, "angle": a + PI, "tx": 0.0, "tz": 0.0, "attack": "rush", "fired": false, "stun": 0, "chill": 0, "jump": 0.0, "sx": p.x, "sz": p.y})
 	emit("spawn", p, -1, float(def.radius))
 
 func next_wave() -> void:
@@ -90,6 +92,7 @@ func next_wave() -> void:
 func begin_plan() -> void:
 	phase = "plan"; phase_time = 0.0; turn += 1; hits.clear(); ready_time = 0.0
 	timer = float(Catalog.wave_spec(wave, players.size(), difficulty).planning)
+	Spirits.begin_plan(self)
 	for p in players:
 		velocity(p, Vector2.ZERO); p.ready = false; p.ability = false; p.boost = false; p.shield = 0
 	for e in enemies:
@@ -129,11 +132,14 @@ func command(slot: int, data: Dictionary) -> bool:
 	if phase != "plan" or int(p.hp) <= 0: return false
 	var action: String = data.get("action", "aim")
 	if action == "ready":
-		p.ready = not bool(p.ready); return true
+		p.ready = not bool(p.ready);emit("ready" if p.ready else "cancel",pos(p),slot);return true
 	if action == "ability":
-		if not bool(p.ready) and int(p.charges) > 0: p.ability = not bool(p.ability)
+		if not bool(p.ready) and int(p.charges) > 0:
+			p.ability = not bool(p.ability);emit("ability" if p.ability else "cancel",pos(p),slot)
 		return true
-	if action == "cancel": p.ready = false; return true
+	if action == "cancel":
+		if p.ready:emit("cancel",pos(p),slot)
+		p.ready = false; return true
 	if action != "aim" or bool(p.ready): return false
 	var a := float(data.get("angle", p.angle))
 	var power := float(data.get("power", p.power))
@@ -167,17 +173,23 @@ func tick(dt: float) -> void:
 		else: begin_reward()
 	check_end()
 
+func launch_speed(p: Dictionary) -> float:
+	var speed: float = (3.0 + float(p.power) * 8.5) * float(p.speed)
+	if Spirits.active(p,"wind"): speed *= 1.25
+	if p.statuses.has("frost"): speed *= 0.6
+	if p.statuses.has("snare"): speed *= 0.7
+	for h in hazards:
+		if h.kind == "ice" and pos(p).distance_to(pos(h)) < float(h.r): speed *= 0.7
+	return speed
+
 func launch() -> void:
 	phase = "resolve"; phase_time = 0.0; hits.clear()
 	for p in players:
 		if int(p.hp) <= 0: continue
+		p.landed_hit=false
 		if not bool(p.ready): p.shield = 1; continue
 		var dir := Vector2(cos(float(p.angle)), sin(float(p.angle)))
-		var speed: float = (3.0 + float(p.power) * 8.5) * float(p.speed)
-		if p.statuses.has("frost"): speed *= 0.6
-		if p.statuses.has("snare"): speed *= 0.7
-		for h in hazards:
-			if h.kind == "ice" and pos(p).distance_to(pos(h)) < float(h.r): speed *= 0.7
+		var speed := launch_speed(p)
 		if bool(p.ability) and int(p.charges) > 0:
 			p.charges -= 1; p.boost = true
 			match int(p.id):
@@ -236,7 +248,7 @@ func move_bodies(dt: float, attacking: bool) -> void:
 			var key := "%s:%s" % [a.id, b.id]
 			if hits.has(key): continue
 			hits[key] = true
-			emit("impact", (pos(a) + pos(b)) * 0.5, -1, minf(impact / 5.0, 2.0))
+			emit("impact", (pos(a) + pos(b)) * 0.5, -1, minf(impact / 5.0, 2.0),"",{"a":int(a.id),"b":int(b.id),"speed":impact,"attacking":attacking})
 			if attacking:
 				if a.has("kind") and b.has("kind"):
 					hit_enemy(a, 1, key + "a", pos(a)); hit_enemy(b, 1, key + "b", pos(b))
@@ -246,7 +258,9 @@ func move_bodies(dt: float, attacking: bool) -> void:
 				var enemy: Dictionary = a if a.has("kind") else b
 				var player: Dictionary = b if a.has("kind") else a
 				if enemy.attack == "rush" and not bool(enemy.fired):
+					var previous_hp:=int(player.hp)
 					damage_player(player, 1, "snare" if enemy.kind == "moth" else "")
+					if int(player.hp)<previous_hp: emit("enemy_mood",pos(enemy),-1,1.0,"joy",{"actor":int(enemy.id)})
 					enemy.fired = true
 	for p in players:
 		if int(p.hp) <= 0: continue
@@ -255,6 +269,9 @@ func move_bodies(dt: float, attacking: bool) -> void:
 				ally.hp = 1; emit("heal", pos(ally), int(ally.id), 1.0, "+1")
 		for item in pickups:
 			if not item.get("used", false) and pos(p).distance_to(pos(item)) < 0.7:
+				if item.kind == "spirit":
+					if attacking: Spirits.collect(self,p,item)
+					continue
 				item.used = true
 				if item.kind == "heart": p.hp = mini(int(p.hp) + 1, int(p.max_hp))
 				else: p.charges = mini(int(p.charges) + 1, 5)
@@ -263,7 +280,9 @@ func move_bodies(dt: float, attacking: bool) -> void:
 	enemies = enemies.filter(func(x): return int(x.hp) > 0)
 
 func player_hit(p: Dictionary, e: Dictionary, key: String) -> void:
-	var damage := 1 + int(p.damage)
+	if int(e.hp)<=0:return
+	p.landed_hit=true
+	var damage := 1 + int(p.damage) + Spirits.hit(self,p,e,key)
 	if p.statuses.has("weak"): damage = maxi(1, damage - 1)
 	if bool(p.boost) and int(p.id) == 0: damage += 1; p.boost = false
 	hit_enemy(e, damage, key + "hit", pos(e))
@@ -278,7 +297,7 @@ func player_hit(p: Dictionary, e: Dictionary, key: String) -> void:
 func hit_enemy(e: Dictionary, amount: int, key: String, point: Vector2) -> void:
 	if hits.has(key) or int(e.hp) <= 0: return
 	hits[key] = true; e.hp -= amount
-	emit("damage", point, -1, float(amount), str(amount))
+	emit("damage", point, -1, float(amount), str(amount),{"target":int(e.id)})
 	if int(e.hp) <= 0:
 		kills += 1; emit("death", point, -1, float(e.r) * 2.0)
 		if rng.randf() < 0.28:
@@ -290,14 +309,27 @@ func damage_player(p: Dictionary, amount: int, status: String = "") -> void:
 	for guard in players:
 		if int(guard.hp) > 0 and int(guard.shield) > 0 and (guard.id == p.id or (int(guard.id) == 1 and pos(guard).distance_to(pos(p)) < 2.0)):
 			guard.shield -= 1; emit("shield", pos(p), 1, 1.0); return
+	if Spirits.active(p,"shield"):
+		p.spirit={};emit("shield",pos(p),1,1.0);return
 	if int(p.armor) > 0: p.armor -= 1; emit("shield", pos(p), 1, 1.0); return
 	p.hp = maxi(0, int(p.hp) - amount)
 	if status != "": p.statuses[status] = 2
 	emit("hurt", pos(p), int(p.id), 1.0, "−%d" % amount)
 
 func begin_enemy() -> void:
+	Spirits.after_throw(self)
 	if enemies.is_empty(): clear_wave(); return
 	phase = "enemy"; phase_time = 0.0; hits.clear()
+	var mocker:=-1
+	for p in players:
+		if bool(p.ready) and int(p.hp)>0 and not p.get("landed_hit",false):
+			var nearest:=INF
+			for e in enemies:
+				if int(e.stun)==0 and pos(e).distance_to(pos(p))<nearest:
+					nearest=pos(e).distance_to(pos(p));mocker=int(e.id)
+			break
+	for e in enemies:
+		if int(e.stun)==0:emit("enemy_mood",pos(e),-1,1.0,"mock" if int(e.id)==mocker else "anger",{"actor":int(e.id)})
 	for p in players: velocity(p, Vector2.ZERO)
 	for e in enemies:
 		velocity(e, Vector2.ZERO)
@@ -305,7 +337,7 @@ func begin_enemy() -> void:
 		if int(e.stun) > 0: e.stun -= 1; e.fired = true; continue
 		if e.attack == "rush":
 			var target := Vector2(float(e.tx), float(e.tz))
-			velocity(e, (target - pos(e)).limit_length(5.5) * 1.85)
+			velocity(e, (target - pos(e)).limit_length(5.5) * 1.85 * (0.55 if int(e.get("chill",0))>0 else 1.0))
 		elif e.attack == "jump": e.jump = 0.001
 
 func enemy_actions(dt: float) -> void:
@@ -313,39 +345,47 @@ func enemy_actions(dt: float) -> void:
 		if bool(e.fired): continue
 		if e.attack == "rush":
 			if pos(e).length() <= CORE_RADIUS + float(e.r) + 0.1:
+				var previous_fire:=fire
 				damage_fire(1); e.fired = true
+				if fire<previous_fire:emit("enemy_mood",pos(e),-1,1.0,"joy",{"actor":int(e.id)})
 				if e.kind in ["coal", "moth"]: e.hp = 0; emit("death", pos(e))
 			continue
 		if e.attack == "jump":
-			e.jump = minf(1.0, float(e.jump) + dt / 0.95)
+			e.jump = minf(1.0, float(e.jump) + dt / (1.70 if int(e.get("chill",0))>0 else 0.95))
 			var from := Vector2(float(e.sx), float(e.sz)); var to := Vector2(float(e.tx), float(e.tz))
 			place(e, from.lerp(to, float(e.jump)))
 			if float(e.jump) < 1.0: continue
 			e.jump = 0.0; e.fired = true
 			var radius := 1.6 if e.kind == "weaver" else 1.05
-			area_attack(pos(e), radius, "frost" if e.kind == "weaver" else "")
+			area_attack(pos(e), radius, "frost" if e.kind == "weaver" else "",e)
 			if e.kind == "weaver": add_hazard(pos(e), 1.8, "ice")
 		elif phase_time > 0.9:
 			e.fired = true
 			if e.attack == "frost":
 				var target := Vector2(float(e.tx), float(e.tz))
-				area_attack(target, 1.1, "frost"); add_hazard(target, 1.1, "ice")
+				area_attack(target, 1.1, "frost",e); add_hazard(target, 1.1, "ice")
 			elif e.attack == "slam":
-				area_attack(pos(e), 1.4, "weak")
+				area_attack(pos(e), 1.4, "weak",e)
 				if pos(e).length() < 2.0: damage_fire(1)
 			elif e.attack == "ring":
 				var ring_radius := 2.4 if turn % 2 == 0 else 4.5
 				emit("ring", Vector2.ZERO, 3, ring_radius)
+				emit("boss_attack",pos(e),3,2.2)
 				for p in players:
-					if absf(pos(p).length() - ring_radius) < 0.8: damage_player(p, 1, "burn")
+					if absf(pos(p).length() - ring_radius) < 0.8:
+						var previous_hp:=int(p.hp);damage_player(p,1,"burn")
+						if int(p.hp)<previous_hp:emit("enemy_mood",pos(e),-1,1.0,"joy",{"actor":int(e.id)})
 				if turn % 3 == 0: damage_fire(1)
 				if turn % 2 == 0: spawn("coal", rng.randf() * TAU)
 
-func area_attack(center: Vector2, radius: float, status: String) -> void:
+func area_attack(center: Vector2, radius: float, status: String, attacker: Dictionary = {}) -> void:
 	emit("ice" if status == "frost" else "blast", center, -1, radius)
+	if not attacker.is_empty() and attacker.kind in ["ram","weaver","eater"]:emit("boss_attack",center,3,1.7)
 	for p in players:
 		if pos(p).distance_to(center) < radius + float(p.r) * 0.5:
+			var previous_hp:=int(p.hp)
 			damage_player(p, 1, status)
+			if int(p.hp)<previous_hp and not attacker.is_empty():emit("enemy_mood",pos(attacker),-1,1.0,"joy",{"actor":int(attacker.id)})
 			velocity(p, (pos(p) - center).normalized() * 3.0)
 
 func add_hazard(p: Vector2, radius: float, kind: String) -> void:
@@ -359,6 +399,7 @@ func damage_fire(amount: int) -> void:
 	fire = maxi(0, fire - amount); emit("fire_hurt", Vector2.ZERO, 3, 2.0, "−1")
 
 func end_turn() -> void:
+	for e in enemies: e.chill=0
 	for p in players:
 		if p.statuses.has("burn"): damage_player(p, 1)
 		for key in p.statuses.keys():
@@ -405,11 +446,11 @@ func choose_reward(slot: int, choice: int) -> bool:
 func check_end() -> void:
 	if phase in ["menu", "win", "lose"]: return
 	if fire <= 0:
-		phase = "lose"; last_reason = "Огонь погас. Попробуйте прикрыть очаг Стражем."; return
+		phase = "lose"; emit("defeat",Vector2.ZERO);last_reason = "Огонь погас. Попробуйте прикрыть очаг Стражем."; return
 	var alive := false
 	for p in players:
 		if int(p.hp) > 0: alive = true
-	if not alive: phase = "lose"; last_reason = "Все хранители погасли. Касайтесь павших, чтобы поднять их."
+	if not alive: phase = "lose"; emit("defeat",Vector2.ZERO);last_reason = "Все хранители погасли. Касайтесь павших, чтобы поднять их."
 
 func snapshot() -> Dictionary:
 	return {"players": players.duplicate(true), "enemies": enemies.duplicate(true), "hazards": hazards.duplicate(true), "pickups": pickups.duplicate(true), "events": events.duplicate(true), "phase": phase, "wave": wave, "turn": turn, "difficulty": difficulty, "fire": fire, "max_fire": max_fire, "timer": timer, "phase_time": phase_time, "reward_options": reward_options.duplicate(), "kills": kills, "reason": last_reason}

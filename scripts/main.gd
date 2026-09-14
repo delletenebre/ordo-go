@@ -60,7 +60,7 @@ func start_local(count: int, mode: int) -> void:
 func start_game(count: int, mode: int) -> void:
 	selected = int(local_slots[0]); sim.start(count, mode, int(Time.get_unix_time_from_system()))
 	in_menu = false; accumulator = 0.0; net_clock = 0.0; reward_choices.clear()
-	arena.last_event = 0; hud.seen = 0; hud.pulse_events.clear(); hud.trails.clear(); hud.help_open = false
+	arena.reset_presentation(); hud.seen = 0; hud.pulse_events.clear(); hud.trails.clear(); hud.help_open = false
 	var focus := get_viewport().gui_get_focus_owner()
 	if focus != null: focus.release_focus()
 
@@ -81,10 +81,11 @@ func _process(dt: float) -> void:
 				if net_clock >= 0.05:
 					net_clock = 0.0; net.send({"type": "snapshot", "state": sim.snapshot()})
 		aim_clock += dt
-		if aim_clock >= 0.05:
+		if not online or aim_clock >= 0.05:
 			read_continuous_input(aim_clock); aim_clock = 0.0
 		if demo: demo_play()
 	arena.render_state(sim, dt, online and not net.is_host)
+	arena.update_audio(dt,in_menu,sim)
 	if capture_path != "" and capture_time > 2.0 and (capture_phase == "" or (sim.phase == capture_phase and sim.phase_time > 0.18)):
 		var path := capture_path; capture_path = ""
 		await RenderingServer.frame_post_draw
@@ -137,13 +138,13 @@ func _input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled(); return
 		if in_menu: return
 		match event.physical_keycode:
-			KEY_H: hud.help_open = not hud.help_open
+			KEY_H: hud.help_open = not hud.help_open;arena.sound("ui")
 			KEY_M: arena.muted = not arena.muted
 			KEY_ESCAPE:
 				if hud.help_open: hud.help_open = false
 				else: return_menu()
 			KEY_TAB:
-				selected = int(local_slots[(local_slots.find(selected) + 1) % local_slots.size()])
+				selected = int(local_slots[(local_slots.find(selected) + 1) % local_slots.size()]);arena.sound("ui")
 			KEY_SPACE: send_command(selected, {"action": "ready"})
 			KEY_BACKSPACE: send_command(selected, {"action": "cancel"})
 			KEY_Q: send_command(selected, {"action": "ability"})

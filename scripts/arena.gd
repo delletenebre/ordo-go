@@ -3,6 +3,20 @@ extends Node3D
 
 const Catalog = preload("res://scripts/catalog.gd")
 const Felt = preload("res://shaders/felt.gdshader")
+const WoolMesh = preload("res://scripts/wool_mesh.gd")
+const GameAudio = preload("res://scripts/audio.gd")
+var audio_system
+const CoalMesh = preload("res://scripts/coal_mesh.gd")
+const EnemyFace = preload("res://scripts/enemy_face.gd")
+const SpiritVisuals = preload("res://scripts/spirit_visuals.gd")
+var spirit_visuals
+const Masonry = preload("res://scripts/masonry.gd")
+const Smoke = preload("res://scripts/smoke.gd")
+var smoke
+var retiring: Dictionary = {}
+var smoke_timers: Dictionary = {}
+var combo_hits:=0
+var combo_last:=-10.0
 var camera: Camera3D
 var actors: Dictionary = {}
 var cloth: Dictionary = {}
@@ -19,15 +33,16 @@ var visual_rng := RandomNumberGenerator.new()
 var flames: Array = []
 var trail_time := 0.0
 var muted := false
-var sounds: Dictionary = {}
-var audio_voices: Array = []
-var voice_cursor := 0
 var torches: Array = []
+var coal_portrait: Texture2D
 
 func _ready() -> void:
 	visual_rng.seed = 77381
 	make_world()
 	add_child(actor_root)
+	make_coal_portrait()
+	smoke = Smoke.new(); add_child(smoke)
+	spirit_visuals = SpiritVisuals.new(); add_child(spirit_visuals)
 	particle_mesh.radius = 0.065; particle_mesh.height = 0.13
 	particle_mesh.radial_segments = 6; particle_mesh.rings = 3
 	for i in 220:
@@ -40,11 +55,40 @@ func _ready() -> void:
 		particles.append({"node": mesh, "mat": material, "life": 0.0, "max": 1.0, "v": Vector3.ZERO, "size": 1.0})
 	make_sounds()
 
+func make_coal_portrait() -> void:
+	var viewport:=SubViewport.new();viewport.name="CoalPortrait"
+	viewport.size=Vector2i(128,128);viewport.transparent_bg=true
+	viewport.world_3d=World3D.new();viewport.render_target_update_mode=SubViewport.UPDATE_ONCE
+	add_child(viewport)
+	var environment:=Environment.new();environment.background_mode=Environment.BG_COLOR
+	environment.background_color=Color(0,0,0,0);environment.ambient_light_source=Environment.AMBIENT_SOURCE_COLOR
+	environment.ambient_light_color=Color("b8c9e0");environment.ambient_light_energy=.7
+	var portrait_environment:=WorldEnvironment.new();portrait_environment.environment=environment
+	viewport.add_child(portrait_environment)
+	var head:=Node3D.new();viewport.add_child(head)
+	mesh_node(head,CoalMesh.shell(1.0,31),Vector3(0,.94,0),CoalMesh.material_for("coal",31))
+	var face:=EnemyFace.new();head.add_child(face);face.build(self,1.0,31);face.react("surprise");face.step(.2,Vector2.ZERO)
+	var lamp:=DirectionalLight3D.new();lamp.rotation_degrees=Vector3(-35,-30,0);lamp.light_energy=1.7;viewport.add_child(lamp)
+	var view:=Camera3D.new();viewport.add_child(view);view.projection=Camera3D.PROJECTION_ORTHOGONAL;view.size=2.6
+	view.position=Vector3(0,2.6,4.5);view.look_at(Vector3(0,.95,0));view.current=true
+	coal_portrait=viewport.get_texture()
+
 func wool(color: Color) -> ShaderMaterial:
 	var key := color.to_html()
 	if cloth.has(key): return cloth[key]
 	var mat := ShaderMaterial.new(); mat.shader = Felt
 	mat.set_shader_parameter("wool_color", color)
+	mat.set_shader_parameter("wool_detail", preload("res://assets/wool-detail.png"))
+	cloth[key] = mat
+	return mat
+
+func stone_material(color: Color) -> ShaderMaterial:
+	var key := "stone:"+color.to_html()
+	if cloth.has(key): return cloth[key]
+	var mat := ShaderMaterial.new(); mat.shader = preload("res://shaders/stone.gdshader")
+	mat.set_shader_parameter("rock_color",preload("res://assets/stone-detail.png"))
+	mat.set_shader_parameter("stone_color",color)
+	mat.set_shader_parameter("map_offset",Vector3(color.r*8.3,color.g*7.1,color.b*4.7))
 	cloth[key] = mat
 	return mat
 
@@ -105,111 +149,99 @@ func make_world() -> void:
 	backdrop.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED; background.add_child(backdrop)
 	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	settings.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	settings.ambient_light_color = Color("a3bbd4"); settings.ambient_light_energy = 0.32
+	settings.ambient_light_color = Color("a3bbd4"); settings.ambient_light_energy = 0.23
 	settings.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	settings.glow_enabled = true; settings.glow_intensity = 0.65; settings.glow_bloom = 0.12
-	settings.ssao_enabled = true; settings.ssao_radius = 0.8; settings.ssao_intensity = 1.4
+	settings.ssao_enabled = true; settings.ssao_radius = 0.8; settings.ssao_intensity = 1.75
 	env.environment = settings; add_child(env)
 	var sun := DirectionalLight3D.new(); sun.rotation_degrees = Vector3(-55, -35, 0)
-	sun.light_color = Color("ffdfb6"); sun.light_energy = 1.0; sun.shadow_enabled = true
+	sun.light_color = Color("ffdfb6"); sun.light_energy = 0.60; sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 40; add_child(sun)
 	var rim := DirectionalLight3D.new(); rim.rotation_degrees = Vector3(-30, 145, 0)
 	rim.light_color = Color("83bfff"); rim.light_energy = 0.4; add_child(rim)
-	camera = Camera3D.new(); camera.projection = Camera3D.PROJECTION_ORTHOGONAL
-	camera.keep_aspect = Camera3D.KEEP_WIDTH; camera.size = 19.2
-	camera.position = Vector3(0, 17, 15.5); add_child(camera); camera.look_at(Vector3(0, 0, -0.2))
+	camera = Camera3D.new(); camera.projection = Camera3D.PROJECTION_PERSPECTIVE
+	camera.keep_aspect = Camera3D.KEEP_WIDTH; camera.fov = 55.5
+	camera.position = Vector3(0, 21.0, 11.2); add_child(camera); camera.look_at(Vector3(0, 0, 0.45))
 	camera.current = true
+	camera.near = 5.0; camera.far = 45.0
 	cylinder(self, Vector3(0, -0.56, 0), 6.7, 0.75, wool(Color("312f37")))
 	cylinder(self, Vector3(0, -0.15, 0), 6.38, 0.24, wool(Color("6b3234")))
 	ring(self, Vector3(0, -0.03, 0), 6.29, 0.055, wool(Color("d2ad7c")))
 	stitches(self, 6.33, 0.05, 240, Color("d8b78b"))
-	var rug := StandardMaterial3D.new(); rug.albedo_texture = load("res://assets/shyrdak.png"); rug.roughness = 1.0
+	var rug := StandardMaterial3D.new(); rug.albedo_texture = load("res://assets/shyrdak-v2.png"); rug.roughness = 1.0
 	mesh_node(self, disk_texture(), Vector3.ZERO, rug)
 	for a in [0.3, 1.85, 3.4, 4.95]:
-		var stone := Node3D.new(); stone.position = Vector3(cos(a) * 4.6, 0.18, sin(a) * 4.6); stone.rotation.y = -a; add_child(stone)
-		sphere(stone, Vector3.ZERO, Vector3(1.0, 0.5, 0.85), wool(Color("a39785")))
-		ring(stone, Vector3(0, 0.235, 0), 0.22, 0.045, wool(Color("514b4c")))
-		ring(stone, Vector3(0, 0.245, 0), 0.085, 0.025, wool(Color("514b4c")))
-	for i in 64:
-		var a := TAU * i / 64.0
-		var block := sphere(self, Vector3(cos(a) * 6.55, 0.12 + 0.07 * sin(i * 4.7), sin(a) * 6.55), Vector3(0.69, 0.57, 0.52), wool(Color("56545c").lightened(visual_rng.randf_range(-0.12, 0.12))))
-		block.rotation.y = -a - PI / 2
-		block.rotation.z = visual_rng.randf_range(-0.06, 0.06)
+		var stone := Node3D.new(); stone.position = Vector3(cos(a)*4.6, 0.24, sin(a)*4.6); stone.rotation.y = -a; add_child(stone)
+		mesh_node(stone, Masonry.block(Vector3(0.92, 0.42, 0.83), a), Vector3.ZERO, stone_material(Color("969084")))
+		var rune := PackedVector3Array()
+		for i in 65:
+			var t := float(i)/64; var r := 0.22*(1-t*0.85); var angle := t*TAU*1.65
+			rune.append(Vector3(cos(angle)*r,0.22,sin(angle)*r))
+		WoolMesh.thread_path(stone,rune,0.025,wool(Color("41424b")))
+	Masonry.wall(self)
 	for i in 6:
-		var a := TAU * i / 6.0 + 0.3
-		var p := Vector3(cos(a) * 6.45, 0.3, sin(a) * 6.45)
-		cylinder(self, p + Vector3(0, 0.14, 0), 0.32, 0.35, wool(Color("7f634d")))
-		cylinder(self, p + Vector3(0, 0.4, 0), 0.25, 0.16, material(Color("d89448")))
-		var flame := make_flame(p + Vector3(0, 0.5, 0), 0.47); torches.append(flame)
-		var light := OmniLight3D.new(); light.position = p + Vector3(0, 0.7, 0); light.light_color = Color("ffb653"); light.light_energy = 1.2; light.omni_range = 2.8; add_child(light)
-	cylinder(self, Vector3(0, 0.18, 0), 1.04, 0.36, wool(Color("5c4544")))
-	for i in 12:
-		var a := TAU * i / 12
-		var block := box(self, Vector3(cos(a) * 0.85, 0.35, sin(a) * 0.85), Vector3(0.43, 0.26, 0.33), wool(Color("b59167")))
-		block.rotation.y = -a
-	ring(self, Vector3(0, 0.52, 0), 0.63, 0.07, material(Color("f2aa4f"), 0.3))
-	flame_root = make_flame(Vector3(0, 0.5, 0), 1.3)
+		var a := TAU*i/6.0+0.3
+		Masonry.lantern(self, Vector3(cos(a)*6.62,0.32,sin(a)*6.62),i)
+	Masonry.hearth(self)
+	flame_root = make_flame(Vector3(0, 0.40, 0), 0.97)
 	fire_light = OmniLight3D.new(); fire_light.position = Vector3(0, 1.6, 0); fire_light.omni_range = 8.0
 	fire_light.light_color = Color("ffb353"); fire_light.light_energy = 3.0; add_child(fire_light)
 
 func flame_shape(size: float) -> ArrayMesh:
-	var st := SurfaceTool.new(); st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for j in 18:
-		for i in 24:
-			for corner in [Vector2(i, j), Vector2(i + 1, j), Vector2(i + 1, j + 1), Vector2(i, j), Vector2(i + 1, j + 1), Vector2(i, j + 1)]:
-				var t: float = corner.y / 18.0; var a: float = corner.x * TAU / 24.0
-				var r: float = pow(maxf(0.0, sin(PI * pow(t, 0.7))), 0.8) * size * 0.3
-				st.set_uv(Vector2(corner.x / 24.0, t))
-				st.add_vertex(Vector3(cos(a) * r + sin(t * PI) * t * size * 0.13, t * size * 1.4, sin(a) * r))
-	st.generate_normals(); return st.commit()
+	var surface := SurfaceTool.new(); surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# Curved ribbons, with enough height segments for flowing tongues, not rigid cones.
+	for y in 24:
+		for x in 4:
+			for corner in [Vector2i(x,y),Vector2i(x+1,y),Vector2i(x+1,y+1),Vector2i(x,y),Vector2i(x+1,y+1),Vector2i(x,y+1)]:
+				var h:=float(corner.y)/24;var u:=float(corner.x)/4
+				var width:=pow(sin(PI*h),.62)*(.42-h*.24)
+				surface.set_uv(Vector2(u,h))
+				surface.add_vertex(Vector3((u-.5)*width*size*2.0+sin(h*3.5)*h*.07*size,h*size*1.46,sin(u*PI)*.06*size))
+	surface.generate_normals();return surface.commit()
 
 func make_flame(p: Vector3, size: float) -> Node3D:
-	var root := Node3D.new(); add_child(root); root.position = p
-	var mat := ShaderMaterial.new(); mat.shader = preload("res://shaders/flame.gdshader")
-	mat.set_shader_parameter("tint", Color("ff791e")); mat.set_shader_parameter("heat", 1.5)
-	var outer := mesh_node(root, flame_shape(size), Vector3.ZERO, mat)
-	var inside := ShaderMaterial.new(); inside.shader = preload("res://shaders/flame.gdshader")
-	inside.set_shader_parameter("tint", Color("ffe4a0")); inside.set_shader_parameter("heat", 2.0)
-	var inner := mesh_node(root, flame_shape(size * 0.7), Vector3(0, 0.0, size * 0.14), inside)
-	var tip := mesh_node(root, flame_shape(size * 0.62), Vector3(size * 0.17, 0, 0), mat)
-	tip.rotation.z = -0.25
-	flames.append({"root": root, "outer": outer, "inner": inner, "tip": tip, "size": size, "offset": visual_rng.randf() * TAU})
+	var root:=Node3D.new();add_child(root);root.position=p
+	var tongues:Array=[]
+	for i in 7:
+		var mat:=ShaderMaterial.new();mat.shader=preload("res://shaders/flame.gdshader")
+		mat.set_shader_parameter("tint",Color("ff8221") if i<4 else Color("ffd273"))
+		mat.set_shader_parameter("heat",1.5 if i<4 else 1.8)
+		mat.set_shader_parameter("phase",visual_rng.randf()*TAU)
+		var length:=size*(1.0-float(i%4)*.14)
+		var angle:=i*2.39996
+		var tongue:=mesh_node(root,flame_shape(length),Vector3(cos(angle),0,sin(angle))*size*.11,mat)
+		tongue.rotation.y=angle;tongue.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		tongues.append(mat)
+	flames.append({"root":root,"tongues":tongues,"size":size,"offset":visual_rng.randf()*TAU})
 	return root
 
 func create_actor(e: Dictionary, is_player: bool) -> Node3D:
 	var root := Node3D.new(); actor_root.add_child(root)
 	var color: Color = Catalog.COLORS[int(e.id)] if is_player else Color(Catalog.ENEMIES[e.kind].color)
 	var r := float(e.r)
-	sphere(root, Vector3(0.02, 0.035, 0.05), Vector3(r * 2.25, 0.045, r * 2.1), material(Color(0.025, 0.02, 0.025, 0.3)))
+	var shadow_mesh := PlaneMesh.new(); shadow_mesh.size = Vector2(r * 2.5, r * 2.5)
+	var shadow_material := ShaderMaterial.new(); shadow_material.shader = preload("res://shaders/contact_shadow.gdshader")
+	var contact := mesh_node(root, shadow_mesh, Vector3(0, 0.047, 0), shadow_material)
+	contact.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	if is_player:
 		var body_color: Color = [Color("185bb5"), Color("bc842b"), Color("227c47"), Color("ad2f40")][int(e.id)]
-		cylinder(root, Vector3(0, 0.19, 0), r, 0.27, wool(body_color.darkened(0.2)))
-		sphere(root, Vector3(0, 0.29, 0), Vector3(r * 1.86, 0.38, r * 1.86), wool(body_color))
-		ring(root, Vector3(0, 0.41, 0), r * 0.83, 0.024, wool(color.lightened(0.4)))
-		stitches(root, r * 0.9, 0.375, 28, color.lightened(0.7))
-		var symbol := Label3D.new(); symbol.text = ["△", "⬡", "◇", "○"][int(e.id)]
-		symbol.font_size = 96; symbol.pixel_size = 0.0064; symbol.position = Vector3(0, 0.505, 0)
-		symbol.rotation_degrees.x = -90; symbol.modulate = Color("fff3d9"); symbol.outline_size = 2; symbol.outline_modulate = color.darkened(0.65)
-		root.add_child(symbol)
-		var halo := ring(root, Vector3(0, 0.07, 0), r * 1.13, 0.018, material(color, 1.0)); halo.name = "Halo"
+		var cap := ShaderMaterial.new(); cap.shader=preload("res://shaders/token.gdshader")
+		cap.set_shader_parameter("caps",preload("res://assets/player-caps-v2.png"));cap.set_shader_parameter("wool",preload("res://assets/wool-detail.png"))
+		cap.set_shader_parameter("side_color",body_color);cap.set_shader_parameter("slot",int(e.id));cap.set_shader_parameter("radius",r)
+		mesh_node(root,WoolMesh.token(r),Vector3.ZERO,cap).name="Body"
+		var halo := ring(root, Vector3(0, 0.07, 0), r * 1.13, 0.010, material(color, 0.65)); halo.name = "Halo"
 		var shield_mat := ShaderMaterial.new(); shield_mat.shader = preload("res://shaders/shield.gdshader")
 		shield_mat.set_shader_parameter("shield_color", Color("ffcc74"))
 		var shield := sphere(root, Vector3(0, 0.08, 0), Vector3(3.9, 2.1, 3.9) if int(e.id) == 1 else Vector3(1.3, 1.0, 1.3), shield_mat)
 		shield.name = "Shield"; shield.visible = false; shield.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	else:
-		var body := sphere(root, Vector3(0, r * 0.9, 0), Vector3(r * 1.95, r * 1.8, r * 1.85), wool(color.darkened(0.12))); body.name = "Body"
-		var fiber_mesh := CapsuleMesh.new(); fiber_mesh.radius = 0.004; fiber_mesh.height = r * 0.16; fiber_mesh.radial_segments = 3; fiber_mesh.rings = 1
-		var fibers := MultiMesh.new(); fibers.transform_format = MultiMesh.TRANSFORM_3D; fibers.mesh = fiber_mesh; fibers.instance_count = 150
-		for fi in 150:
-			var direction := Vector3(visual_rng.randf_range(-1, 1), visual_rng.randf_range(-0.4, 1), visual_rng.randf_range(-1, 1)).normalized()
-			var up := Vector3.FORWARD if absf(direction.dot(Vector3.UP)) > 0.95 else Vector3.UP
-			var x := up.cross(direction).normalized(); var basis := Basis(x, direction, x.cross(direction))
-			fibers.set_instance_transform(fi, Transform3D(basis, Vector3(0, r * 0.9, 0) + direction * r * 0.94))
-		var fuzz := MultiMeshInstance3D.new(); fuzz.multimesh = fibers; fuzz.material_override = wool(color.lightened(0.16)); root.add_child(fuzz)
-		for x in [-0.32, 0.32]:
-			sphere(root, Vector3(x * r, r * 1.05, r * 0.78), Vector3(r * 0.40, r * 0.43, r * 0.2), wool(Color("171a27")))
-			sphere(root, Vector3(x * r, r * 1.08, r * 0.87), Vector3(r * 0.16, r * 0.19, r * 0.08), material(Color("ffc96a"), 1.5))
-			sphere(root, Vector3(x * r * 1.7, 0.08, 0.1), Vector3(r * 0.55, r * 0.3, r * 0.7), wool(color.darkened(0.12)))
+		var coal_material := CoalMesh.material_for(e.kind,int(e.id))
+		var body := mesh_node(root,CoalMesh.shell(r,int(e.id)),Vector3(0,r*.94,0),coal_material);body.name="Body"
+
+		var face:=EnemyFace.new();face.name="Face";root.add_child(face);face.build(self,r,int(e.id))
+		for side in [-1,1]:
+			sphere(root,Vector3(side*r*0.52,0.08,0.1),Vector3(r*0.46,r*0.28,r*0.57),coal_material)
+
 		if e.kind in ["ram", "brute", "eater"]:
 			for side in [-1, 1]:
 				var horn := ring(root, Vector3(side * r * 0.85, r * 1.3, 0.0), r * 0.32, r * 0.105, wool(Color("c6b8a1")))
@@ -220,7 +252,6 @@ func create_actor(e: Dictionary, is_player: bool) -> Node3D:
 				wing.rotation.z = side * 0.35
 		if e.kind == "eater":
 			ring(root, Vector3(0, r * 1.65, 0), r * 0.6, 0.06, material(Color("ff7755"), 1.0))
-		stitches(root, r * 0.77, r * 1.2, 18, color.lightened(0.3), 0.3)
 	root.position = Vector3(float(e.x), 0, float(e.z))
 	return root
 
@@ -228,20 +259,37 @@ func render_state(sim, dt: float, remote: bool = false) -> void:
 	clock += dt; trail_time += dt
 	var live: Dictionary = {}
 	for e in sim.players + sim.enemies:
-		var key := str(e.id); live[key] = true
+		var key := str(int(e.id)); live[key] = true
+		retiring.erase(key)
 		var is_player: bool = not e.has("kind")
 		if not actors.has(key): actors[key] = create_actor(e, is_player)
 		var root: Node3D = actors[key]
 		var target := Vector3(float(e.x), 0.03, float(e.z))
 		if e.has("jump") and float(e.jump) > 0: target.y += sin(float(e.jump) * PI) * 2.4
 		var previous := root.position
+		if not is_player:
+			var speed := Vector2(float(e.vx), float(e.vz)).length()
+			var interval := 0.10 if speed > 0.7 else 0.30
+			smoke_timers[key] = float(smoke_timers.get(key, 0.0)) + dt
+			if float(smoke_timers[key]) >= interval:
+				smoke_timers[key] = fmod(float(smoke_timers[key]), interval)
+				var a := visual_rng.randf() * TAU
+				var offset := Vector3(cos(a)*0.6,0,sin(a)*0.3-0.45) * float(e.r)
+				var drift := Vector3(-float(e.vx) * 0.055, 0.32, -0.12-float(e.vz) * 0.055)
+				smoke.emit_puff(previous + offset + Vector3(0, 0.25, 0), drift, float(e.r) * 1.9, 2.1, 0.25)
 		root.position = root.position.lerp(target, 1.0 - exp(-28.0 * dt)) if remote else target
 		if not is_player:
-			root.rotation.y = lerp_angle(root.rotation.y, sin(float(e.angle)) * 0.18, dt * 8.0)
+			root.rotation.y = lerp_angle(root.rotation.y, sin(float(e.angle)) * 0.18, 1.0 - exp(-8.0 * dt))
+			var look:=Vector2.ZERO
+			var nearest:=INF
+			for player in sim.players:
+				var delta:=Vector2(float(player.x)-float(e.x),float(player.z)-float(e.z))
+				if int(player.hp)>0 and delta.length()<nearest:nearest=delta.length();look=delta.normalized()
+			root.get_node("Face").step(dt,look)
 			var breathing := sin(clock * 3.0 + int(e.id)) * 0.025
 			root.scale = Vector3(1.0 + breathing, 1.0 - breathing, 1.0 + breathing)
 		else:
-			root.scale.y = 0.3 if int(e.hp) <= 0 else 1.0
+			root.scale.y = lerpf(root.scale.y, 0.40 if int(e.hp) <= 0 else 1.0, 1.0 - exp(-12.0 * dt))
 			root.get_node("Halo").visible = int(e.hp) > 0
 			root.get_node("Shield").visible = int(e.hp) > 0 and int(e.shield) > 0
 			if e.statuses.has("burn") and visual_rng.randf() < dt * 16:
@@ -250,22 +298,37 @@ func render_state(sim, dt: float, remote: bool = false) -> void:
 			var color: Color = Catalog.COLORS[int(e.id)] if is_player else Color("b0a18c")
 			particle(previous + Vector3(0, 0.13, 0), Vector3(0, 0.2, 0), color, 0.36, 0.7)
 	for key in actors.keys():
-		if not live.has(key): actors[key].queue_free(); actors.erase(key)
+		if not live.has(key) and not retiring.has(key):
+			retiring[key] = {"age": 0.0, "position": actors[key].position, "scale": actors[key].scale}
+	for key in retiring.keys():
+		var retirement: Dictionary = retiring[key]; retirement.age += dt
+		var root: Node3D = actors[key]
+		var t := clampf(float(retirement.age) / 0.65, 0.0, 1.0)
+		root.scale = retirement.scale * (1.0 - t * t * 0.92)
+		root.position = retirement.position + Vector3(0, -t * 0.16, 0)
+		if t >= 1.0:
+			root.queue_free(); actors.erase(key); retiring.erase(key); smoke_timers.erase(key)
 	if trail_time > 0.026: trail_time = 0.0
 	for event in sim.events:
 		if int(event.id) > last_event:
 			last_event = int(event.id); play_event(event)
 	for flame in flames:
-		var t: float = clock * 7.0 + float(flame.offset)
-		flame.root.scale = Vector3(1.0 + sin(t) * 0.045, 1.0 + cos(t * 1.3) * 0.075, 1.0 + sin(t + 1.0) * 0.045)
-		flame.tip.rotation.z = sin(t * 0.7) * 0.11
-		if visual_rng.randf() < dt * 18.0:
-			particle(flame.root.position + Vector3(0, float(flame.size) * 0.7, 0), Vector3(visual_rng.randf_range(-0.2, 0.2), 0.9, visual_rng.randf_range(-0.2, 0.2)), Color("ffd378"), 1.1, 0.3)
+		var t:float=clock+float(flame.offset)
+		flame.root.scale=Vector3(1.0+sin(t*3.1)*.045,1.0+sin(t*4.7)*.08+sin(t*7.1)*.03,1.0+cos(t*3.7)*.035)
+		for mat in flame.tongues:mat.set_shader_parameter("elapsed",clock)
+		if visual_rng.randf()<dt*9.0:
+			particle(flame.root.position+Vector3(0,float(flame.size)*.7,0),Vector3(visual_rng.randf_range(-.15,.15),1.6,visual_rng.randf_range(-.15,.15)),Color("ffd378"),.9,.24)
+	for torch in torches:
+		var t:float=clock+float(torch.phase)
+		torch.light.light_energy=2.8+sin(t*5.3)*.13+sin(t*8.7)*.065
+		torch.light.position=torch.origin+Vector3(sin(t*3.1)*.025,.28+sin(t*4.7)*.025,cos(t*3.7)*.02)
 	flame_root.visible = sim.fire > 0
-	fire_light.light_energy = (2.7 + sin(clock * 11) * 0.2) * maxf(0.1, float(sim.fire) / maxf(1.0, float(sim.max_fire)))
-	shake = maxf(0.0, shake - dt * 2.0)
-	camera.h_offset = sin(clock * 79.0) * shake * 0.08
-	camera.v_offset = cos(clock * 93.0) * shake * 0.065
+	fire_light.light_energy = (2.7 + sin(clock * 5.1) * 0.12 + sin(clock * 7.3) * 0.05) * maxf(0.1, float(sim.fire) / maxf(1.0, float(sim.max_fire)))
+	shake = maxf(0.0, shake - dt * 1.6)
+	camera.h_offset = sin(clock * 18.0) * shake * shake * 0.095
+	camera.v_offset = cos(clock * 16.0) * shake * shake * 0.075
+	smoke.step(dt, camera.global_basis)
+	spirit_visuals.step(sim,self,dt)
 	for item in particles:
 		if float(item.life) <= 0.0: continue
 		item.life -= dt
@@ -276,23 +339,56 @@ func render_state(sim, dt: float, remote: bool = false) -> void:
 		var color: Color = item.mat.albedo_color; color.a = minf(1.0, float(item.life) * 4.0); item.mat.albedo_color = color
 
 func particle(p: Vector3, velocity_value: Vector3, color: Color, life: float, size: float) -> void:
-	var item: Dictionary = particles[particle_cursor]; particle_cursor = (particle_cursor + 1) % particles.size()
+	var slot := -1
+	for offset in particles.size():
+		var candidate := (particle_cursor + offset) % particles.size()
+		if float(particles[candidate].life) <= 0.0: slot = candidate; break
+	if slot < 0: return
+	var item: Dictionary = particles[slot]; particle_cursor = (slot + 1) % particles.size()
 	item.node.position = p; item.node.visible = true; item.mat.albedo_color = color
 	item.life = life; item.max = life; item.v = velocity_value; item.size = size
+	item.node.scale = Vector3.ONE * size
 
 func play_event(e: Dictionary) -> void:
 	var kind: String = e.kind
-	if kind in ["damage", "wave"]: return
+	if kind=="enemy_mood":
+		sound(e.text)
+		var key:=str(int(e.get("actor",-1)))
+		if actors.has(key) and actors[key].has_node("Face"):actors[key].get_node("Face").react(e.text,0.85)
+		return
+	if kind=="impact":
+		if e.get("attacking",true):
+			combo_hits=combo_hits+1 if clock-combo_last<0.8 else 1;combo_last=clock
+		var heavy:=float(e.strength)>=1.15 or (combo_hits>=3 and clock-combo_last<0.8)
+		if heavy:
+			sound("surprise")
+			shake=maxf(shake,minf(1.0,0.5+float(e.strength)*0.20+combo_hits*0.035))
+			for field in ["a","b"]:
+				var key:=str(int(e.get(field,-1)))
+				if actors.has(key) and actors[key].has_node("Face"):actors[key].get_node("Face").react("fear" if combo_hits>=3 else "surprise",0.80)
+	if kind=="damage" and float(e.strength)>=3:
+		shake=maxf(shake,0.8)
+		var key:=str(int(e.get("target",-1)))
+		if actors.has(key) and actors[key].has_node("Face"):actors[key].get_node("Face").react("fear",0.85)
+	if kind=="boss_attack":shake=1.0
+	if kind == "death":
+		smoke.burst(Vector3(float(e.x), 0.18, float(e.z)), maxf(0.65, float(e.strength)))
+	elif kind in ["impact", "blast", "hurt"]:
+		for i in 5:
+			smoke.emit_puff(Vector3(float(e.x), 0.12, float(e.z)), Vector3(visual_rng.randf_range(-0.5, 0.5), 0.22, visual_rng.randf_range(-0.5, 0.5)), 0.55, 1.15, 0.28)
+	var sound_map:={"ready":"ready","cancel":"cancel","ability":"ability","launch":"launch","impact":"heavy" if float(e.strength)>1.3 else "impact","blast":"heavy","boss_attack":"boss","hurt":"hurt","fire_hurt":"hurt","death":"death","heal":"heal","shield":"shield","ice":"ice","wind":"wind","snare":"snare","spirit_pickup":"pickup","spirit_active":"ability","mend_thread":"heal","clear":"clear","victory":"victory","defeat":"lose"}
+	if sound_map.has(kind):sound(sound_map[kind],int(e.get("color",-1)))
+	if kind in ["damage","wave","ready","cancel","ability","spirit_spawn","spirit_fade","spirit_pickup","spirit_active","mend_thread"]:return
 	var color: Color = Catalog.COLORS[int(e.color)] if int(e.color) >= 0 else Color("e6be83")
 	if kind == "ice": color = Color("9bdaf1")
 	if kind == "death": color = Color("817784")
 	var count: int = 12 if kind == "launch" else 24
-	if kind in ["blast", "clear", "victory"]: count = 48
+	if kind in ["blast", "clear", "victory"]: count = 32
+	if kind == "death": count = 7
 	for i in count:
 		var dir := Vector3(visual_rng.randf_range(-1, 1), visual_rng.randf_range(0.2, 1.5), visual_rng.randf_range(-1, 1)).normalized()
 		particle(Vector3(float(e.x), 0.35, float(e.z)), dir * visual_rng.randf_range(0.6, 2.8) * float(e.strength), color, visual_rng.randf_range(0.3, 1.0), visual_rng.randf_range(1.2, 3.2) if kind == "death" else visual_rng.randf_range(0.6, 1.6))
-	if kind in ["impact", "blast", "hurt", "fire_hurt", "death"]: shake = maxf(shake, 0.35 * float(e.strength))
-	if not muted: sound("launch" if kind == "launch" else ("chime" if kind in ["heal", "clear", "shield", "victory"] else "impact"))
+	if kind in ["blast", "fire_hurt"]: shake = maxf(shake,minf(0.85,0.35*float(e.strength)))
 	if kind == "hurt" and int(e.color) < Input.get_connected_joypads().size() and int(e.color) >= 0:
 		Input.start_joy_vibration(Input.get_connected_joypads()[int(e.color)], 0.3, 0.6, 0.18)
 
@@ -307,32 +403,29 @@ func floor_point(screen: Vector2) -> Vector2:
 	return Vector2(point.x, point.z)
 
 func make_sounds() -> void:
-	for name_value in ["impact", "launch", "chime"]:
-		var stream := AudioStreamWAV.new(); stream.format = AudioStreamWAV.FORMAT_16_BITS; stream.mix_rate = 22050
-		var data := PackedByteArray(); var length := 0.26 if name_value != "chime" else 0.65
-		var samples := int(length * 22050); data.resize(samples * 2)
-		for i in samples:
-			var t := float(i) / 22050.0; var envelope := pow(1.0 - t / length, 2)
-			var value := 0.0
-			if name_value == "impact": value = sin(TAU * (95 * t - 85 * t * t)) * 0.7 + visual_rng.randf_range(-0.2, 0.2)
-			elif name_value == "launch": value = visual_rng.randf_range(-0.5, 0.5) * sin(t * PI / length)
-			else: value = (sin(TAU * 660 * t) + sin(TAU * 990 * t) * 0.4) * 0.35
-			data.encode_s16(i * 2, int(clampf(value * envelope, -1, 1) * 12000))
-		stream.data = data; sounds[name_value] = stream
-	for i in 8:
-		var voice := AudioStreamPlayer.new(); voice.volume_db = -10; add_child(voice); audio_voices.append(voice)
+	audio_system=GameAudio.new();add_child(audio_system)
 
-func sound(name_value: String) -> void:
-	var voice: AudioStreamPlayer = audio_voices[voice_cursor]; voice_cursor = (voice_cursor + 1) % audio_voices.size()
-	voice.stream = sounds[name_value]; voice.pitch_scale = visual_rng.randf_range(0.92, 1.08); voice.play()
+func sound(name_value: String, player_id: int = -1) -> void:
+	if not muted and audio_system:audio_system.play_sound(name_value,-12.0,player_id)
+
+func update_audio(dt:float,menu:bool,sim) -> void:
+	var motion:=0.0
+	for player in sim.players:motion=maxf(motion,Vector2(float(player.vx),float(player.vz)).length())
+	audio_system.step(dt,menu,sim.phase,sim.fire>0,motion,muted)
 
 func stop_audio() -> void:
-	muted = true
-	for voice in audio_voices:
-		if is_instance_valid(voice):
-			voice.stop()
-			voice.stream = null
+	muted=true
+	if audio_system:audio_system.stop()
 
 func _exit_tree() -> void:
+	SpiritVisuals.icons.clear()
 	stop_audio()
-	sounds.clear()
+
+func reset_presentation() -> void:
+	for actor in actors.values(): actor.queue_free()
+	actors.clear(); retiring.clear(); smoke_timers.clear()
+	last_event = 0; shake = 0.0;combo_hits=0;combo_last=-10.0
+	if smoke != null: smoke.clear()
+	if spirit_visuals != null:spirit_visuals.clear()
+	for item in particles:
+		item.life = 0.0; item.node.visible = false
