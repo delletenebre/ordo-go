@@ -1,0 +1,3 @@
+{$ORDO_DOMAIN} {
+  reverse_proxy relay:8787
+}
