@@ -1,9 +1,10 @@
 extends Node3D
-## Persistent local magic: a surface halo, three mist sheets and twelve rising motes.
+## Persistent local magic: a surface halo, ten mist puffs and twelve rising motes.
 ## All geometry/materials are allocated once; the effect travels with its source.
 const SHADER = preload("res://shaders/magic_aura.gdshader")
 var materials: Array[ShaderMaterial] = []
 var motes: MultiMesh
+var mist: MultiMesh
 var phase := 0.0
 var strength := 1.0
 
@@ -19,12 +20,13 @@ func setup(color: Color, radius: float, is_curse: bool, seed_value: float) -> vo
 	var floor_mesh := QuadMesh.new(); floor_mesh.size = Vector2(1.6, 1.6)
 	var floor_node := sheet(floor_mesh, materials[0])
 	floor_node.rotation.x = -PI / 2; floor_node.position.y = 0.015
-	var mist := QuadMesh.new(); mist.size = Vector2(0.85, 1.0)
-	for i in 3:
-		var veil := sheet(mist, materials[1])
-		var angle := i * TAU / 3 + 0.3
-		veil.position = Vector3(sin(angle) * 0.43, 0.49, cos(angle) * 0.43)
-		veil.rotation.y = angle
+	var cloud := QuadMesh.new(); cloud.size = Vector2.ONE
+	mist = MultiMesh.new(); mist.transform_format = MultiMesh.TRANSFORM_3D
+	mist.use_custom_data = true; mist.mesh = cloud; mist.instance_count = 10
+	var vapor := MultiMeshInstance3D.new(); vapor.multimesh = mist
+	vapor.material_override = materials[1]
+	vapor.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(vapor)
 	var spark := QuadMesh.new(); spark.size = Vector2(0.075, 0.075)
 	motes = MultiMesh.new(); motes.transform_format = MultiMesh.TRANSFORM_3D
 	motes.mesh = spark; motes.instance_count = 12
@@ -44,6 +46,14 @@ func step(time: float, opacity: float, camera_basis: Basis) -> void:
 	for mat in materials:
 		mat.set_shader_parameter("clock", t)
 		mat.set_shader_parameter("opacity", opacity * strength)
+	for i in 10:
+		var life := fposmod(t * 0.28 + i / 10.0, 1.0)
+		var angle := i * 2.39996 + life * 1.9 + phase
+		var radius := 0.40 + life * 0.20
+		var point := Vector3(cos(angle) * radius, 0.08 + life * 0.9, sin(angle) * radius)
+		var size := 0.38 + life * 0.48
+		mist.set_instance_transform(i, Transform3D(camera_basis.scaled(Vector3.ONE * size), point))
+		mist.set_instance_custom_data(i, Color(life, float(i) * 1.73, 0, 0))
 	for i in 12:
 		var life := fposmod(t * 0.24 + i / 12.0, 1.0)
 		var angle := i * 2.39996 + t * 0.7

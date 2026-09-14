@@ -39,7 +39,7 @@ func run()->void:
 			game.sim.add_hazard(Vector2(3.4,-2.0),0.8,"ice")
 			target=Vector3(0,0.3,0.2);camera.size=11.8
 		elif shot=="wall":target=Vector3(-5.4,0.35,-3.5);camera.size=4.6
-		elif shot=="lantern":target=Vector3(cos(.3)*6.62,1.0,sin(.3)*6.62);camera.size=2.6
+		elif shot=="lantern":target=Vector3(6.62,1.0,0);camera.size=2.6
 		else:target=Vector3(0,0.4,0);camera.size=4.3
 		if shot!="arena":camera.position=target+Vector3(0,4,5);camera.look_at(target)
 		for i in 60:

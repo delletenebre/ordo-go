@@ -8,7 +8,7 @@ func check(value:bool,message:String)->void:
 	if not value:failures+=1;push_error(message)
 func run()->void:
 	var audio:=Audio.new();root.add_child(audio);await process_frame
-	check(audio.effects.size()==27,"All event sounds and four player cues load")
+	check(audio.effects.size()==23,"All event sounds and one shared ready cue load")
 	check(absf(audio.menu_music.stream.get_length()-64.0)<0.01,"Menu loop is 64 seconds")
 	check(absf(audio.interlude_music.stream.get_length()-32.0)<0.01,"Interlude loop is 32 seconds")
 	for i in 180:audio.step(1.0/60,true,"plan",true,0,false)
@@ -19,11 +19,9 @@ func run()->void:
 	check(audio.levels.y>0.99,"Reward phase fades in interlude")
 	for player in 4:
 		audio.play_sound("ready",-12.0,player)
-		check(audio.voices[player].playing and audio.voices[player].stream==audio.effects["ready_%d"%player],"Each player gets their own simultaneous ready cue")
+		check(audio.voices[player].playing and audio.voices[player].stream==audio.effects["ready"],"Every player gets the selected shared ready cue")
 		check(audio.voices[player].pitch_scale==1.0,"Ready signature keeps its tuning")
 	check(audio.voices.filter(func(v):return v.playing).size()==4,"One player's cooldown does not suppress another")
-	for player in 3:
-		check(audio.effects["ready_%d"%player].data!=audio.effects["ready_%d"%(player+1)].data,"Player cues have different audio")
 	audio.step(0.1,false,"reward",true,0,true);audio.play_sound("ready")
 	for player in 4:audio.play_sound("ready",-12.0,player)
 	check(not audio.voices.any(func(v):return v.playing),"Mute suppresses effects")

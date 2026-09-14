@@ -54,9 +54,10 @@ func _init() -> void:
 		sim.begin_enemy(); advance(sim, 2.2)
 		check(sim.phase in ["plan", "lose"], "boss action finishes")
 	sim.start(2, 1, 42); sim.begin_reward(); sim.reward_options = ["stitch", "spark", "guard"]
-	check(sim.choose_reward(0, 0) and sim.players[0].max_hp == 5, "permanent boon")
-	check(not sim.choose_reward(0, 1), "no duplicate reward")
+	check(sim.choose_reward(0, 0) and sim.players[0].max_hp == 4, "boon is pending until everyone is ready")
+	check(not sim.choose_reward(0, 0), "same selection is idempotent")
 	sim.choose_reward(1, 2)
+	advance(sim, 2.1)
 	check(sim.wave == 2 and sim.players[1].armor == 1, "reward waits for everyone then next wave")
 	sim.fire = 0; sim.check_end(); check(sim.phase == "lose", "core loss")
 	sim.start(1); sim.wave = 9; sim.enemies.clear(); sim.clear_wave(); advance(sim, 2.0)

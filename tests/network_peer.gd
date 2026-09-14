@@ -44,6 +44,8 @@ func receive(data: Dictionary) -> void:
 		"snapshot":
 			if not host:
 				snapshots += 1; sim.restore(data.state)
+				if sim.stones.size()!=4 or sim.stones.filter(func(stone):return stone.get("collector",false)).size()!=2 or sim.rune_seed!=42:
+					push_error("Authoritative rune state missing from network snapshot");quit(1);return
 				if not sent_ready:
 					sent_ready = true
 					net.send({"type": "command", "slot": int(net.slots[0]), "data": {"action": "ready", "turn": sim.turn}})

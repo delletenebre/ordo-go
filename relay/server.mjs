@@ -13,10 +13,12 @@ export function createRelay({ maxRooms = 250 } = {}) {
     }
     const pathname = new URL(req.url, 'http://localhost').pathname;
     const files = { '/': 'index.html', '/controller.js': 'controller.js' };
+    for (const key of ['stitch','spark','stride','charge','guard','mend']) files[`/boons/${key}.png`] = `../../assets/boons/${key}.png`;
+    files['/reward.css'] = 'reward.css';
     if (!files[pathname]) { res.writeHead(404); return res.end('Not found'); }
     try {
       const content = await readFile(new URL(`./public/${files[pathname]}`, import.meta.url));
-      res.writeHead(200, { 'Content-Type': pathname.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/html; charset=utf-8', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' });
+      res.writeHead(200, { 'Content-Type': pathname.endsWith('.png') ? 'image/png' : pathname.endsWith('.css') ? 'text/css; charset=utf-8' : pathname.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/html; charset=utf-8', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' });
       res.end(content);
     } catch { res.writeHead(500); res.end('Unavailable'); }
   });

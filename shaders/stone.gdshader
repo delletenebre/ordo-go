@@ -25,7 +25,7 @@ void fragment() {
   vec3 s=cross(q1,n),t=cross(n,q0);
   float determinant=dot(q0,s);
   vec3 gradient=sign(determinant)*(dFdx(luma)*s+dFdy(luma)*t);
-  NORMAL=normalize(abs(determinant)*n-gradient*.15);
+  NORMAL=normalize(abs(determinant)*n-gradient*.008);
   ROUGHNESS = 0.96;
   SPECULAR = 0.0;
 }

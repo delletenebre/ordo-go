@@ -35,7 +35,7 @@ func step(sim, arena, dt: float) -> void:
 			root.add_child(sprite)
 			var aura := MagicAura.new(); root.add_child(aura)
 			aura.setup(Color(Spirits.TYPES[item.spirit].color), 0.36, false, float(item.id))
-			patches[key]={"node":root,"sprite":sprite,"aura":aura,"age":0.0,"exit":false,"owner":-1,"item":item.duplicate(),"from":Vector3.ZERO}
+			patches[key]={"node":root,"sprite":sprite,"aura":aura,"age":.38 if item.get("from_rune",false) else 0.0,"exit":false,"owner":-1,"item":item.duplicate(),"from":Vector3.ZERO}
 		var patch:Dictionary=patches[key];patch.age+=dt
 		patch.node.position=Vector3(float(item.x),0.08+sin(time*1.6+int(item.id))*0.035,float(item.z))
 		patch.node.scale=Vector3.ONE*smoothstep(0.0,0.38,float(patch.age))

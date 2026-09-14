@@ -1,5 +1,6 @@
 class_name OrdoHud
 extends Control
+const RuneRules=preload("res://scripts/runestones.gd")
 const Spirits = preload("res://scripts/spirits.gd")
 const SpiritVisuals = preload("res://scripts/spirit_visuals.gd")
 const AimPreview = preload("res://scripts/aim_preview.gd")
@@ -27,13 +28,15 @@ var local_button: Button
 var options_root: VBoxContainer
 var room_label: Label
 var help_open := false
-var reward_choice := 0
+var game_menu = preload("res://scripts/game_menu.gd").new()
+var reward_screen = preload("res://scripts/reward_screen.gd").new()
 var scale_factor := 1.0
 var aim_halo: GradientTexture2D
 var aim_band: GradientTexture2D
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	# Cached falloffs keep the aim luminous even without 3D bloom (mobile renderer).
 	var falloff := Gradient.new()
@@ -49,6 +52,7 @@ func _ready() -> void:
 	aim_band = GradientTexture2D.new(); aim_band.gradient = band
 	aim_band.width = 8; aim_band.height = 128
 	aim_band.fill_from = Vector2(0,0); aim_band.fill_to = Vector2(0,1)
+	reward_screen.prepare()
 	build_menu()
 
 func style(color: Color = Color("182633"), border: Color = Color("80715c")) -> StyleBoxFlat:
@@ -71,32 +75,7 @@ func label_node(text_value: String, parent: Node, size_value: int = 17, color: C
 	l.add_theme_color_override("font_color", color); parent.add_child(l); return l
 
 func build_menu() -> void:
-	menu = Control.new(); add_child(menu); menu.position = Vector2(92, 370); menu.size = Vector2(440, 600)
-	options_root = VBoxContainer.new(); options_root.size = Vector2(420, 580); options_root.add_theme_constant_override("separation", 12); menu.add_child(options_root)
-	var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 12); options_root.add_child(row)
-	local_count = OptionButton.new(); local_count.custom_minimum_size = Vector2(203, 46)
-	for i in 4: local_count.add_item("%d игрок%s здесь" % [i + 1, "" if i == 0 else "а"])
-	row.add_child(local_count)
-	difficulty = OptionButton.new(); difficulty.custom_minimum_size = Vector2(203, 46)
-	for name_value in ["Уютная ночь", "Испытание", "Буря"]: difficulty.add_item(name_value)
-	difficulty.selected = 1; row.add_child(difficulty)
-	for option in [local_count, difficulty]:
-		option.add_theme_font_size_override("font_size", 17); option.add_theme_stylebox_override("normal", style())
-	local_button = button("ИГРАТЬ НА ЭТОМ ЭКРАНЕ", options_root, func(): game.start_local(local_count.selected + 1, difficulty.selected))
-	label_node("ИГРА С ДРУЗЬЯМИ НА ДРУГИХ ТВ", options_root, 13, gold)
-	url_field = LineEdit.new(); url_field.placeholder_text = "wss://ваш-сервер"; url_field.text = game.relay_url
-	url_field.custom_minimum_size = Vector2(0, 43); url_field.add_theme_stylebox_override("normal", style()); options_root.add_child(url_field)
-	var net_row := HBoxContainer.new(); net_row.add_theme_constant_override("separation", 10); options_root.add_child(net_row)
-	connect_button = button("Создать комнату", net_row, func(): connect_room(true)); connect_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	code_field = LineEdit.new(); code_field.placeholder_text = "КОД"; code_field.max_length = 6; code_field.custom_minimum_size = Vector2(105, 50)
-	code_field.add_theme_stylebox_override("normal", style()); net_row.add_child(code_field)
-	join_button = button("Войти", net_row, func(): connect_room(false))
-	room_label = label_node("", options_root, 19, gold)
-	message_label = label_node("", options_root, 14, muted); message_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; message_label.custom_minimum_size.x = 410
-	start_button = button("НАЧАТЬ ОБЩИЙ МАТЧ", options_root, func(): game.net.send({"type": "start", "difficulty": difficulty.selected})); start_button.hide()
-	var hint := label_node("Enter / A — выбрать    ·    F11 — полный экран\nОдин геймпад на игрока · телефон вместо геймпада", options_root, 14, muted)
-	hint.add_theme_constant_override("line_spacing", 6)
-	local_button.grab_focus()
+	game_menu.build(self)
 
 func connect_room(create: bool) -> void:
 	if not create and code_field.text.strip_edges().length() != 6:
@@ -241,7 +220,7 @@ func _process(dt: float) -> void:
 					trails[key].append({"p": location, "life": 0.32})
 					if trails[key].size() > 28: trails[key].pop_front()
 	scale_factor = size.x / 1600.0
-	menu.scale = Vector2.ONE * scale_factor; menu.position = Vector2(92, 350) * scale_factor
+	menu.scale = Vector2.ONE * scale_factor; menu.position = Vector2(88, 350) * scale_factor
 	menu.visible = game.in_menu
 	for e in game.sim.events:
 		if int(e.id) > seen:
@@ -249,6 +228,56 @@ func _process(dt: float) -> void:
 	for e in pulse_events: e.life += dt
 	pulse_events = pulse_events.filter(func(e): return e.life < 1.2)
 	queue_redraw()
+
+func draw_runestones(sim) -> void:
+	var symbols:={"surge":"×2","heal":"♥","guard":"⬡","thorns":"✹","class":"✦"}
+	for stone in sim.stones:
+		if not stone.get("collector",false):continue
+		var anchor:=project(Vector2(float(stone.x),float(stone.z)),.65)
+		var kind:String=stone.get("effect","")
+		var charged:=RuneRules.charged(stone)
+		var color:=Color(RuneRules.EFFECTS[kind].color) if RuneRules.EFFECTS.has(kind) else Color("89bac9")
+		for pip in 2:
+			var p:=anchor+Vector2(-6+pip*12,22)
+			draw_circle(p,4,Color("121a23"));draw_circle(p,2.5,color if pip<int(stone.get("souls",0)) else Color("4a5059"))
+		if charged:
+			var badge:=anchor+Vector2(24,-16)
+			draw_circle(badge,17,Color(.015,.025,.034,.95));draw_arc(badge,16,0,TAU,40,color,1.6,true)
+			text_at(symbols.get(kind,"✦"),badge+Vector2(-17,7),20,color,HORIZONTAL_ALIGNMENT_CENTER,34)
+		if (get_local_mouse_position()/scale_factor).distance_to(anchor)<36:
+			var label:String=RuneRules.EFFECTS[kind].name if charged and RuneRules.EFFECTS.has(kind) else "Души: %d / 2"%int(stone.get("souls",0))
+			text_at(label,anchor+Vector2(-110,-42),15,cream,HORIZONTAL_ALIGNMENT_CENTER,220)
+	for player in sim.players:
+		var boon:Dictionary=player.get("rune_boon",{})
+		if boon.is_empty() or int(player.hp)<=0:continue
+		var anchor:=project(Vector2(float(player.x),float(player.z)),.90)+Vector2(-26,-8)
+		var color:=Color(RuneRules.EFFECTS[boon.kind].color)
+		draw_circle(anchor,14,Color(.015,.025,.034,.92));draw_arc(anchor,14,0,TAU,32,color,1.5,true)
+		text_at(symbols[boon.kind],anchor+Vector2(-12,6),19,color,HORIZONTAL_ALIGNMENT_CENTER,24)
+		for pip in maxi(0,int(boon.expires)-sim.turn):draw_circle(anchor+Vector2(-4+pip*8,19),2,color)
+
+func draw_clashes() -> void:
+	for item in pulse_events:
+		var event:Dictionary=item.event
+		if event.kind not in ["clash","team_clash"]:continue
+		if event.kind=="team_clash":
+			var superseded:=false
+			for other in pulse_events:
+				if other.event.kind=="team_clash" and int(other.event.get("target",-1))==int(event.target) and int(other.event.id)>int(event.id):superseded=true
+			if superseded:continue
+		var age:float=item.life
+		var opacity:=1.0-smoothstep(.35,1.0,age)
+		var origin:=Vector2(float(event.x),float(event.z))
+		world_ring(origin,.25+age*3.3,Color("c5edff",opacity*.9),4.0*(1.0-age)+1.0)
+		world_ring(origin,.18+age*2.8,Color("ffdfa2",opacity*.5),2.0)
+		var anchor:=project(origin,.8)+Vector2(0,-30-age*44)
+		var size_value:=int(42+sin(minf(age/.18,1.0)*PI)*12)
+		var label:="ТЫДЫЩ! ×%d"%int(event.multiplier)
+		if event.kind=="team_clash":label="ВМЕСТЕ! ТЫДЫЩ ×%d"%int(event.multiplier)
+		var width:=font.get_string_size(label,HORIZONTAL_ALIGNMENT_LEFT,-1,size_value).x
+		var p:=anchor-Vector2(width*.5,0)
+		draw_string_outline(font,p,label,HORIZONTAL_ALIGNMENT_LEFT,-1,size_value,7,Color(.025,.04,.06,opacity))
+		text_at(label,p,size_value,Color("fff0c6",opacity))
 
 func draw_wave_clock(sim) -> void:
 	# Five visible milestones slide through the nine-wave match without hiding its ends.
@@ -300,13 +329,13 @@ func _draw() -> void:
 	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE * scale_factor)
 	var sim = game.sim
 	if game.in_menu:
-		var veil := Rect2(0, 0, 570, 1000); draw_rect(veil, Color(0.018, 0.029, 0.047, 0.94))
-		text_at("В О Й Л О Ч Н Ы Е   Л Е Г Е Н Д Ы", Vector2(95, 105), 16, gold)
-		text_at("ORDO", Vector2(84, 248), 112, cream)
-		text_at("Х Р А Н И Т Е Л И   О Ч А Г А", Vector2(96, 287), 20, gold)
-		text_at("Один огонь. Четыре хранителя. Общая история.", Vector2(96, 323), 17, muted)
-		text_at("Тёплая шерсть. Холодная ночь.", Vector2(950, 930), 18, cream)
-		text_at("Защитите последний огонь перевала.", Vector2(950, 959), 17, muted)
+		game_menu.draw()
+		draw_pad_notice()
+		return
+	if sim.phase == "reward":
+		draw_reward()
+		draw_pad_notice()
+		if help_open: draw_help()
 		return
 	for key in trails.keys():
 		var trail: Array = trails[key]
@@ -319,6 +348,8 @@ func _draw() -> void:
 			draw_line(a, b, Color(cream, opacity * 0.65), 1.6 * opacity, true)
 	# The tabletop remains the primary surface; all HUD elements sit near its perimeter.
 	draw_wave_clock(sim)
+	draw_runestones(sim)
+	draw_clashes()
 	for i in sim.players.size():
 		var p: Dictionary = sim.players[i]; var c: Color = Catalog.COLORS[i]; var y: float = 158.0 + i * 102.0
 		var badge:=Vector2(62,y)
@@ -365,10 +396,10 @@ func _draw() -> void:
 	for e in sim.enemies:
 		var p := Vector2(float(e.x), float(e.z)); var screen := project(p, float(e.r) * 2.4)
 		if e.max_hp > 5:
-			panel(Rect2(1160, 132, 390, 65), Color(0.04, 0.035, 0.05, 0.9), Color("9d6970"))
-			text_at(Catalog.ENEMIES[e.kind].name, Vector2(1180, 159), 16, cream)
-			draw_rect(Rect2(1180, 174, 347, 5), Color("3a343f"))
-			draw_rect(Rect2(1180, 174, 347.0 * float(e.hp) / float(e.max_hp), 5), Color("e89c86"))
+			panel(Rect2(1160, 204, 390, 65), Color(0.04, 0.035, 0.05, 0.9), Color("9d6970"))
+			text_at(Catalog.ENEMIES[e.kind].name, Vector2(1180, 231), 16, cream)
+			draw_rect(Rect2(1180, 246, 347, 5), Color("3a343f"))
+			draw_rect(Rect2(1180, 246, 347.0 * float(e.hp) / float(e.max_hp), 5), Color("e89c86"))
 		else:
 			for hp in int(e.max_hp): draw_circle(screen + Vector2((hp - (int(e.max_hp) - 1) * 0.5) * 10, -8), 3, gold if hp < e.hp else Color("41434b"))
 	for h in sim.hazards: world_ring(Vector2(float(h.x), float(h.z)), float(h.r), Color(0.55, 0.8, 0.95, 0.55), 2, true)
@@ -430,6 +461,13 @@ func _draw() -> void:
 	if sim.phase == "reward": draw_reward()
 	if sim.phase in ["win", "lose"]: draw_end()
 	if help_open: draw_help()
+	draw_pad_notice()
+
+func draw_pad_notice() -> void:
+	if game.pad_notice_time <= 0: return
+	var top := 140.0 if game.in_menu else (38.0 if game.sim.phase=="reward" else 190.0)
+	panel(Rect2(780,top,710,65),Color(.07,.045,.025,.97),gold)
+	text_at(game.pad_notice,Vector2(795,top+42),23,cream,HORIZONTAL_ALIGNMENT_CENTER,680)
 
 func draw_spirit_badge(player: Dictionary, center: Vector2) -> void:
 	var spirit: Dictionary=player.get("spirit",{})
@@ -450,25 +488,7 @@ func draw_spirit_badge(player: Dictionary, center: Vector2) -> void:
 		text_at("H — описание духов узора",Vector2(1238,839),12,muted)
 
 func draw_reward() -> void:
-	draw_rect(Rect2(0, 110, 1600, 890), Color(0.025, 0.035, 0.055, 0.86))
-	text_at("ВПЛЕТИТЕ НОВУЮ НИТЬ", Vector2(0, 295), 38, cream, HORIZONTAL_ALIGNMENT_CENTER, 1600)
-	text_at("Каждый хранитель выбирает улучшение до конца партии", Vector2(0, 336), 18, muted, HORIZONTAL_ALIGNMENT_CENTER, 1600)
-	for i in game.sim.reward_options.size():
-		var boon: Dictionary = Catalog.BOONS[game.sim.reward_options[i]]
-		var x: float = 290 + i * 350
-		panel(Rect2(x, 395, 320, 240), Color("172431"), gold if reward_choice == i else Color("5b6470"))
-		text_at(["◇", "✦", "❖"][i], Vector2(x, 468), 48, gold, HORIZONTAL_ALIGNMENT_CENTER, 320)
-		text_at(boon.name, Vector2(x + 20, 520), 23, cream)
-		var words := str(boon.text).split(" "); var line := ""; var y := 556
-		for word in words:
-			if (line + word).length() > 29: text_at(line, Vector2(x + 20, y), 16, muted); y += 24; line = ""
-			line += word + " "
-		text_at(line, Vector2(x + 20, y), 16, muted)
-	text_at("P%d: клавиши 1 / 2 / 3 · геймпад: ← → и A · Tab — другой местный игрок" % [game.selected + 1], Vector2(0, 709), 18, gold, HORIZONTAL_ALIGNMENT_CENTER, 1600)
-	var ready := 0
-	for p in game.sim.players:
-		if p.reward: ready += 1
-	text_at("ВЫБРАЛИ  %d / %d" % [ready, game.sim.players.size()], Vector2(0, 760), 17, cream, HORIZONTAL_ALIGNMENT_CENTER, 1600)
+	reward_screen.draw(self)
 
 func draw_end() -> void:
 	draw_rect(Rect2(0, 110, 1600, 890), Color(0.02, 0.035, 0.05, 0.87))
@@ -480,8 +500,15 @@ func draw_end() -> void:
 func draw_help() -> void:
 	draw_rect(Rect2(0,110,1600,890),Color(0.025,0.04,0.06,0.97))
 	text_at("ХРАНИТЕЛИ ОЧАГА",Vector2(100,178),30,cream)
-	var rules:=["Выберите направление и силу. Q / X — способность.","Space / A — готовность. B / Backspace — отмена.","Готовые фишки летят одновременно, остальные защищаются.","Сильный удар ранит врага. Оранжевые метки — его намерения.","Коснитесь погасшего союзника при броске, чтобы поднять его.","Tab — смена игрока. M — звук. F11 — весь экран."]
+	var rules:=["Выберите направление и силу. Q / X — способность.","Space / A — готовность. B / Backspace — отмена.","Готовые фишки летят одновременно, остальные защищаются.","Сильный удар ранит врага. Метки показывают его намерения.","Коснитесь погасшего союзника при броске, чтобы поднять его.","Tab — смена игрока. M — звук. F11 — весь экран."]
 	for i in rules.size():text_at(rules[i],Vector2(100,218+i*30),18,muted)
+	text_at("ТЫДЫЩ: быстрый встречный бросок, угол до 45° от встречного.",Vector2(100,403),15,gold)
+	text_at("Разлёт ×2 / ×3. Один раз на игрока за бросок.",Vector2(100,425),15,muted)
+	text_at("РУНИЧЕСКИЕ КАМНИ",Vector2(840,178),28,gold)
+	text_at("Две души заряжают камень случайным видимым даром.",Vector2(840,218),16,muted)
+	var gifts:=["×2  Разгон: удваивает скорость одного рикошета.","♥  Живая нить: +1 жизнь раненому хранителю.","⬡  Оберег: один блок урона и дебаффа, до двух ходов.","✹  Панцирь: меньше отбрасывание; ответный урон раз в ход.","✦  Дар узора: класс вылетает в свободную точку поля."]
+	for i in gifts.size():text_at(gifts[i],Vector2(840,253+i*29),15,cream)
+	text_at("Дар забирается рикошетом. Один дар на фишку за бросок.",Vector2(840,412),15,muted)
 	text_at("ДУХИ УЗОРА",Vector2(100,445),28,gold)
 	text_at("Подберите нашивку броском. Она включится со следующего хода. Один слот на хранителя.",Vector2(100,478),17,muted)
 	text_at("Новые нашивки — раз в два хода; лежат три хода. Занятый слот сохраняет нашивку для союзника.",Vector2(100,505),17,muted)

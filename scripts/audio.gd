@@ -15,9 +15,6 @@ var rng:=RandomNumberGenerator.new()
 func _ready() -> void:
 	rng.seed=7219
 	for effect in EFFECTS:effects[effect]=load("res://assets/audio/%s.wav"%effect)
-	for player in 4:
-		var key:="ready_%d"%player
-		effects[key]=load("res://assets/audio/%s.wav"%key)
 	for i in 16:
 		var voice:=AudioStreamPlayer.new();add_child(voice);voices.append(voice)
 	menu_music=loop_player("menu");interlude_music=loop_player("interlude")
@@ -50,16 +47,16 @@ func step(dt:float,menu:bool,phase:String,fire_alive:bool,motion:float,muted:boo
 		for voice in voices:voice.stop()
 func play_sound(name:String,volume:float=-12.0,player_id:int=-1) -> void:
 	if silent:return
-	if name=="ready" and player_id>=0 and player_id<4:name="ready_%d"%player_id
 	if name=="chime":name="pickup"
 	if not effects.has(name):return
 	var cooldown:=0.12 if name in ["joy","mock","anger"] else 0.035
-	if clock-float(last_play.get(name,-10.0))<cooldown:return
-	last_play[name]=clock
+	var cooldown_key:="ready_%d"%player_id if name=="ready" else name
+	if clock-float(last_play.get(cooldown_key,-10.0))<cooldown:return
+	last_play[cooldown_key]=clock
 	for voice in voices:
 		if not voice.playing:
 			voice.stream=effects[name];voice.volume_db=volume
-			voice.pitch_scale=1.0 if name=="ready" or name.begins_with("ready_") else rng.randf_range(0.96,1.04)
+			voice.pitch_scale=1.0 if name=="ready" else rng.randf_range(0.96,1.04)
 			voice.play();return
 func stop() -> void:
 	silent=true

@@ -69,9 +69,9 @@ def tone(name,kind,length=.5):
         b[i]=v*env
     save(name,b,.70)
 for n,k,l in [('impact','impact',.28),('heavy','heavy',.65),('launch','whoosh',.35),('death','whoosh',.65),('hurt','vowel',.30),('shield','bell',.65),('ice','ice',.55),('wind','whoosh',.8),('boss','heavy',1.0),('joy','vowel',.30),('mock','laugh',.70),('anger','anger',.28),('surprise','whoosh',.19),('ui','click',.06)]:tone(n,k,l)
-# Shared with the audition tool so regenerating assets preserves player cues.
-from generate_ready_variants import generate_all as generate_ready_sounds
-generate_ready_sounds(DEST)
+# Preserve the selected ready cue when regenerating the full audio library.
+from generate_ready_variants import generate_ready
+generate_ready(DEST)
 for name,sequence in {'cancel':[54,50],'pickup':[54,57,62],'snare':[45,57],'heal':[50,57],'clear':[50,54,57,62],'victory':[50,54,57,62,66,62],'lose':[54,52,50,38],'ability':[54,59]}.items():
     buf=array.array('f',[0])*int(RATE*(1.3+len(sequence)*.13))
     for i,m in enumerate(sequence):add(buf,i*.13,notes[m],.55)

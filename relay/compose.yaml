@@ -1,23 +1,8 @@
 services:
   relay:
-    build: .
-    restart: unless-stopped
-    expose:
-      - "8787"
-  caddy:
-    image: caddy:2-alpine
+    build:
+      context: ..
+      dockerfile: relay/Dockerfile
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
-    environment:
-      ORDO_DOMAIN: ${ORDO_DOMAIN:?Set ORDO_DOMAIN to your server domain}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - relay
-volumes:
-  caddy_data:
-  caddy_config:
+      - "${PORT:-8787}:8787"

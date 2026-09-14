@@ -13,6 +13,9 @@ var spirit_visuals
 const Masonry = preload("res://scripts/masonry.gd")
 const Smoke = preload("res://scripts/smoke.gd")
 var smoke
+var debris
+var fractures:Array=[]
+const CoalDebris=preload("res://scripts/coal_debris.gd")
 var retiring: Dictionary = {}
 var smoke_timers: Dictionary = {}
 var combo_hits:=0
@@ -35,6 +38,9 @@ var trail_time := 0.0
 var muted := false
 var torches: Array = []
 var coal_portrait: Texture2D
+var rune_stones:Array=[]
+var rune_visuals
+const RuneVisuals=preload("res://scripts/rune_visuals.gd")
 
 func _ready() -> void:
 	visual_rng.seed = 77381
@@ -43,6 +49,7 @@ func _ready() -> void:
 	make_coal_portrait()
 	smoke = Smoke.new(); add_child(smoke)
 	spirit_visuals = SpiritVisuals.new(); add_child(spirit_visuals)
+	rune_visuals=RuneVisuals.new();add_child(rune_visuals);rune_visuals.build(self)
 	particle_mesh.radius = 0.065; particle_mesh.height = 0.13
 	particle_mesh.radial_segments = 6; particle_mesh.rings = 3
 	for i in 220:
@@ -50,10 +57,11 @@ func _ready() -> void:
 		var material := StandardMaterial3D.new()
 		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		mesh.material_override = material; mesh.visible = false
+		mesh.material_override = material; mesh.visible = false;mesh.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mesh)
 		particles.append({"node": mesh, "mat": material, "life": 0.0, "max": 1.0, "v": Vector3.ZERO, "size": 1.0})
 	make_sounds()
+	debris=CoalDebris.new();add_child(debris);debris.audio_system=audio_system
 
 func make_coal_portrait() -> void:
 	var viewport:=SubViewport.new();viewport.name="CoalPortrait"
@@ -161,7 +169,7 @@ func make_world() -> void:
 	rim.light_color = Color("83bfff"); rim.light_energy = 0.4; add_child(rim)
 	camera = Camera3D.new(); camera.projection = Camera3D.PROJECTION_PERSPECTIVE
 	camera.keep_aspect = Camera3D.KEEP_WIDTH; camera.fov = 55.5
-	camera.position = Vector3(0, 21.0, 11.2); add_child(camera); camera.look_at(Vector3(0, 0, 0.45))
+	camera.position = Vector3(0, 21.0, 11.2); add_child(camera); camera.look_at(Vector3(0, 0, 0.65))
 	camera.current = true
 	camera.near = 5.0; camera.far = 45.0
 	cylinder(self, Vector3(0, -0.56, 0), 6.7, 0.75, wool(Color("312f37")))
@@ -177,10 +185,11 @@ func make_world() -> void:
 		for i in 65:
 			var t := float(i)/64; var r := 0.22*(1-t*0.85); var angle := t*TAU*1.65
 			rune.append(Vector3(cos(angle)*r,0.22,sin(angle)*r))
-		WoolMesh.thread_path(stone,rune,0.025,wool(Color("41424b")))
+		WoolMesh.thread_path(stone,rune,0.025,wool(Color("41424b"))).name="Rune"
+		rune_stones.append(stone)
 	Masonry.wall(self)
 	for i in 6:
-		var a := TAU*i/6.0+0.3
+		var a := TAU*i/6.0
 		Masonry.lantern(self, Vector3(cos(a)*6.62,0.32,sin(a)*6.62),i)
 	Masonry.hearth(self)
 	flame_root = make_flame(Vector3(0, 0.40, 0), 0.97)
@@ -303,6 +312,7 @@ func render_state(sim, dt: float, remote: bool = false) -> void:
 	for key in retiring.keys():
 		var retirement: Dictionary = retiring[key]; retirement.age += dt
 		var root: Node3D = actors[key]
+		if root.has_node("Face"):root.get_node("Face").step(dt,Vector2.ZERO)
 		var t := clampf(float(retirement.age) / 0.65, 0.0, 1.0)
 		root.scale = retirement.scale * (1.0 - t * t * 0.92)
 		root.position = retirement.position + Vector3(0, -t * 0.16, 0)
@@ -312,6 +322,15 @@ func render_state(sim, dt: float, remote: bool = false) -> void:
 	for event in sim.events:
 		if int(event.id) > last_event:
 			last_event = int(event.id); play_event(event)
+	for fracture in fractures:
+		fracture.age+=dt
+		if float(fracture.age)<.085:continue
+		var event:Dictionary=fracture.event
+		var key:=str(int(event.get("target",-1)))
+		if actors.has(key):actors[key].visible=false
+		debris.shatter(event,int(fracture.combo));fracture.done=true
+	fractures=fractures.filter(func(fracture):return not fracture.get("done",false))
+	debris.muted=muted;debris.step(dt)
 	for flame in flames:
 		var t:float=clock+float(flame.offset)
 		flame.root.scale=Vector3(1.0+sin(t*3.1)*.045,1.0+sin(t*4.7)*.08+sin(t*7.1)*.03,1.0+cos(t*3.7)*.035)
@@ -329,16 +348,23 @@ func render_state(sim, dt: float, remote: bool = false) -> void:
 	camera.v_offset = cos(clock * 16.0) * shake * shake * 0.075
 	smoke.step(dt, camera.global_basis)
 	spirit_visuals.step(sim,self,dt)
+	rune_visuals.step(sim,self,dt)
 	for item in particles:
 		if float(item.life) <= 0.0: continue
 		item.life -= dt
 		var mesh: MeshInstance3D = item.node
 		if float(item.life) <= 0.0: mesh.visible = false; continue
 		item.v.y -= dt * 1.5; mesh.position += item.v * dt
-		mesh.scale = Vector3.ONE * float(item.size) * maxf(0.01, float(item.life) / float(item.max))
+		var scale_value:=float(item.size)*maxf(.01,float(item.life)/float(item.max))
+		if float(item.get("stretch",0))>0 and item.v.length_squared()>.001:
+			var direction:Vector3=item.v.normalized();var helper:=Vector3.UP if absf(direction.y)<.95 else Vector3.RIGHT
+			var right:=helper.cross(direction).normalized()
+			mesh.basis=Basis(right,direction,right.cross(direction))
+			mesh.scale=Vector3(.38,float(item.stretch),.38)*scale_value
+		else:mesh.scale=Vector3.ONE*scale_value
 		var color: Color = item.mat.albedo_color; color.a = minf(1.0, float(item.life) * 4.0); item.mat.albedo_color = color
 
-func particle(p: Vector3, velocity_value: Vector3, color: Color, life: float, size: float) -> void:
+func particle(p: Vector3, velocity_value: Vector3, color: Color, life: float, size: float, stretch:float=0.0) -> void:
 	var slot := -1
 	for offset in particles.size():
 		var candidate := (particle_cursor + offset) % particles.size()
@@ -346,11 +372,41 @@ func particle(p: Vector3, velocity_value: Vector3, color: Color, life: float, si
 	if slot < 0: return
 	var item: Dictionary = particles[slot]; particle_cursor = (slot + 1) % particles.size()
 	item.node.position = p; item.node.visible = true; item.mat.albedo_color = color
-	item.life = life; item.max = life; item.v = velocity_value; item.size = size
+	item.life = life; item.max = life; item.v = velocity_value; item.size = size;item.stretch=stretch
+	item.mat.emission_enabled=stretch>0;item.mat.emission=color;item.mat.emission_energy_multiplier=1.3
 	item.node.scale = Vector3.ONE * size
 
 func play_event(e: Dictionary) -> void:
 	var kind: String = e.kind
+	if kind=="team_clash":
+		shake=1.0;sound("heavy")
+		var center:=Vector3(float(e.x),.30,float(e.z))
+		smoke.burst(center,1.1)
+		for i in 64:
+			var angle:=i*TAU/64;var direction:=Vector3(cos(angle),visual_rng.randf_range(.2,1.0),sin(angle))
+			var slot:int=e.participants[i%e.participants.size()]
+			particle(center,direction*visual_rng.randf_range(2.0,4.8),Catalog.COLORS[slot].lightened(.28),.8,.70,3.0)
+		var key:=str(int(e.target))
+		if actors.has(key) and actors[key].has_node("Face"):actors[key].get_node("Face").react("fear",1.05)
+		return
+	if kind=="clash":
+		shake=1.0;sound("heavy")
+		var center:=Vector3(float(e.x),.23,float(e.z))
+		smoke.burst(center,1.25)
+		for i in 44:
+			var angle:=i*TAU/44;var direction:=Vector3(cos(angle),visual_rng.randf_range(.12,.75),sin(angle))
+			particle(center,direction*visual_rng.randf_range(2.4,5.0),Catalog.COLORS[int(e.a)] if i%2==0 else Catalog.COLORS[int(e.b)],.65,.70,3.0)
+		for actor in actors.values():
+			if actor.has_node("Face") and actor.position.distance_to(center)<2.7:actor.get_node("Face").react("fear",1.0)
+		return
+	if kind in ["soul_depart","soul_arrive","rune_ready","rune_boost","rune_gift"]:
+		var sounds:={"soul_depart":"wind","soul_arrive":"pickup","rune_ready":"ability","rune_boost":"heavy","rune_gift":"pickup"}
+		if not muted:audio_system.play_sound(sounds[kind],-24 if kind=="soul_depart" else -15)
+		if kind=="rune_boost":
+			shake=maxf(shake,.55)
+			for i in 14:
+				particle(Vector3(float(e.x),.50,float(e.z)),Vector3(float(e.vx),.5,float(e.vz))*.11+Vector3(visual_rng.randf_range(-.6,.6),visual_rng.randf(),visual_rng.randf_range(-.6,.6)),Color("8fe9ff"),.55,.55,3.2)
+		return
 	if kind=="enemy_mood":
 		sound(e.text)
 		var key:=str(int(e.get("actor",-1)))
@@ -372,6 +428,9 @@ func play_event(e: Dictionary) -> void:
 		if actors.has(key) and actors[key].has_node("Face"):actors[key].get_node("Face").react("fear",0.85)
 	if kind=="boss_attack":shake=1.0
 	if kind == "death":
+		fractures.append({"event":e.duplicate(),"age":0.0,"combo":combo_hits if clock-combo_last<.8 else 0})
+		var actor_key:=str(int(e.get("target",-1)))
+		if actors.has(actor_key) and actors[actor_key].has_node("Face"):actors[actor_key].get_node("Face").react("fear",.2)
 		smoke.burst(Vector3(float(e.x), 0.18, float(e.z)), maxf(0.65, float(e.strength)))
 	elif kind in ["impact", "blast", "hurt"]:
 		for i in 5:
@@ -381,13 +440,13 @@ func play_event(e: Dictionary) -> void:
 	if kind in ["damage","wave","ready","cancel","ability","spirit_spawn","spirit_fade","spirit_pickup","spirit_active","mend_thread"]:return
 	var color: Color = Catalog.COLORS[int(e.color)] if int(e.color) >= 0 else Color("e6be83")
 	if kind == "ice": color = Color("9bdaf1")
-	if kind == "death": color = Color("817784")
+	if kind == "death": color = Color("ffc275")
 	var count: int = 12 if kind == "launch" else 24
 	if kind in ["blast", "clear", "victory"]: count = 32
-	if kind == "death": count = 7
+	if kind == "death": count = 12
 	for i in count:
 		var dir := Vector3(visual_rng.randf_range(-1, 1), visual_rng.randf_range(0.2, 1.5), visual_rng.randf_range(-1, 1)).normalized()
-		particle(Vector3(float(e.x), 0.35, float(e.z)), dir * visual_rng.randf_range(0.6, 2.8) * float(e.strength), color, visual_rng.randf_range(0.3, 1.0), visual_rng.randf_range(1.2, 3.2) if kind == "death" else visual_rng.randf_range(0.6, 1.6))
+		particle(Vector3(float(e.x), 0.35, float(e.z)), dir * visual_rng.randf_range(0.6, 2.8) * float(e.strength), color, visual_rng.randf_range(0.3, 1.0), visual_rng.randf_range(.35,.65) if kind == "death" else visual_rng.randf_range(0.6, 1.6),3.0 if kind=="death" else 0.0)
 	if kind in ["blast", "fire_hurt"]: shake = maxf(shake,minf(0.85,0.35*float(e.strength)))
 	if kind == "hurt" and int(e.color) < Input.get_connected_joypads().size() and int(e.color) >= 0:
 		Input.start_joy_vibration(Input.get_connected_joypads()[int(e.color)], 0.3, 0.6, 0.18)
@@ -425,6 +484,9 @@ func reset_presentation() -> void:
 	for actor in actors.values(): actor.queue_free()
 	actors.clear(); retiring.clear(); smoke_timers.clear()
 	last_event = 0; shake = 0.0;combo_hits=0;combo_last=-10.0
+	fractures.clear()
+	if debris != null:debris.clear()
+	if rune_visuals != null:rune_visuals.clear()
 	if smoke != null: smoke.clear()
 	if spirit_visuals != null:spirit_visuals.clear()
 	for item in particles:

@@ -36,7 +36,7 @@ func run() -> void:
 	sim.enemies.clear(); sim.place(p,Vector2(0,3));p.power=0.15;p.ready=true
 	var endpoint: Vector2 = Preview.trace(sim,p).points[-1]
 	sim.launch()
-	for i in 540: sim.move_bodies(Sim.STEP,false)
+	for i in 540: sim.move_bodies(Sim.STEP,true)
 	check(sim.pos(p).distance_to(endpoint)<0.06,"Free-shot endpoint agrees with fixed-step physics")
 	var arena := Arena.new(); arena.muted=true; root.add_child(arena)
 	sim.start(2,1,42); arena.render_state(sim,0.016)

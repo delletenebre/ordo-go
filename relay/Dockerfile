@@ -1,9 +1,10 @@
 FROM node:24-alpine
-WORKDIR /app
-COPY package*.json ./
+WORKDIR /app/relay
+COPY relay/package*.json ./
 RUN npm ci --omit=dev
-COPY server.mjs ./
-COPY public ./public
+COPY relay/server.mjs ./
+COPY relay/public ./public
+COPY assets/boons /app/assets/boons
 USER node
 EXPOSE 8787
 CMD ["node", "server.mjs"]

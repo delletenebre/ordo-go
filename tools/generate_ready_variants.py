@@ -78,20 +78,12 @@ def render(name, notes, duration, destination):
     print(f'{name}: {len(mono) / RATE:.3f}s, peak {peak * gain:.3f}')
 
 
-def generate_all(destination=DEST):
+def generate_ready(destination=DEST):
     destination.mkdir(parents=True, exist_ok=True)
-    # Four related signatures; open intervals keep overlapping confirmations calm.
-    signatures = [
-        [(0, 587.33, .72), (.08, 880, 1.0)],
-        [(0, 440, .72), (.105, 659.25, 1.0)],
-        [(0, 392, .25), (.012, 783.99, .72), (.095, 1174.66, 1.0)],
-        [(0, 293.66, .65), (.065, 440, .72), (.135, 587.33, 1.0)],
-    ]
-    for player, notes in enumerate(signatures):
-        render(f'ready_{player}', notes, .82, destination)
-    # Generic ready calls use the first player's signature.
-    (destination / 'ready.wav').write_bytes((destination / 'ready_0.wav').read_bytes())
+    # Selected fourth audition: one shared signature for all players.
+    notes = [(0, 293.66, .65), (.065, 440, .72), (.135, 587.33, 1.0)]
+    render('ready', notes, .82, destination)
 
 
 if __name__ == '__main__':
-    generate_all()
+    generate_ready()

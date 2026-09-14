@@ -23,9 +23,15 @@ var preview_wave := 0
 var preview_reward := false
 var capture_time := 0.0
 var command_count := 0
+var pad_slots: Dictionary = {}
+var keyboard_seat := false
+var pad_notice := ""
+var pad_notice_time := 0.0
+var menu_axis_time := 0.0
 
 func _ready() -> void:
 	get_tree().auto_accept_quit = false
+	Input.joy_connection_changed.connect(on_pad_connection)
 	load_settings()
 	arena = Arena.new(); add_child(arena)
 	net = Network.new(); add_child(net); net.message.connect(on_network); net.connection_error.connect(on_error)
@@ -58,6 +64,7 @@ func start_local(count: int, mode: int) -> void:
 	start_game(count, mode)
 
 func start_game(count: int, mode: int) -> void:
+	if not pad_slots.values().has(0): keyboard_seat = true
 	selected = int(local_slots[0]); sim.start(count, mode, int(Time.get_unix_time_from_system()))
 	in_menu = false; accumulator = 0.0; net_clock = 0.0; reward_choices.clear()
 	arena.reset_presentation(); hud.seen = 0; hud.pulse_events.clear(); hud.trails.clear(); hud.help_open = false
@@ -71,6 +78,8 @@ func return_menu() -> void:
 
 func _process(dt: float) -> void:
 	capture_time += dt
+	pad_notice_time = maxf(0.0,pad_notice_time-dt)
+	menu_axis_time = maxf(0.0,menu_axis_time-dt)
 	if not in_menu:
 		if not online or net.is_host:
 			accumulator += minf(dt, 0.1)
@@ -122,21 +131,92 @@ func read_continuous_input(dt: float) -> void:
 			send_command(slot, {"action": "aim", "angle": direction.angle(), "power": clampf(trigger, 0.15, 1.0) if trigger > 0.05 else float(player.power)})
 		elif trigger > 0.05: send_command(slot, {"action": "aim", "angle": float(player.angle), "power": trigger})
 
+func minimum_local_count() -> int:
+	var count := 1
+	for slot in pad_slots.values(): count = maxi(count,int(slot)+1)
+	return count
+
+func register_pad(device: int) -> bool:
+	if pad_slots.has(device): return false
+	var seats: Array = [0,1,2,3] if in_menu else range(local_slots.size())
+	for slot in seats:
+		if pad_slots.values().has(slot) or (slot==0 and keyboard_seat): continue
+		pad_slots[device] = int(slot)
+		var player_id: int = int(slot) if in_menu else int(local_slots[int(slot)])
+		pad_notice = "P%d · %s — ПОДКЛЮЧЁН" % [player_id+1,sim.Catalog.NAMES[player_id]]
+		pad_notice_time = 4.0
+		arena.sound("ready",player_id)
+		Input.start_joy_vibration(device,0.25,0.45,0.22)
+		if in_menu:
+			hud.local_count.select(maxi(hud.local_count.selected,int(slot)))
+			hud.game_menu.refresh()
+		return true
+	return false
+
+func on_pad_connection(device: int, connected: bool) -> void:
+	if connected or not pad_slots.has(device): return
+	var slot: int = int(pad_slots[device]); pad_slots.erase(device)
+	var player_id: int = slot if in_menu or slot>=local_slots.size() else int(local_slots[slot])
+	pad_notice = "P%d — КОНТРОЛЛЕР ОТКЛЮЧЁН" % (player_id+1); pad_notice_time = 5.0
+
 func device_slot(device: int) -> int:
-	var devices := Input.get_connected_joypads()
-	var index := devices.find(device)
-	if index < 0: return -1
-	# When pads are fewer than seats, keyboard takes the first seat.
-	if devices.size() < local_slots.size(): index += 1
-	return int(local_slots[index]) if index < local_slots.size() else -1
+	var seat := int(pad_slots.get(device,-1))
+	if seat < 0: return -1
+	return seat if in_menu else (int(local_slots[seat]) if seat < local_slots.size() else -1)
+
+func menu_input(event: InputEvent) -> bool:
+	if event is InputEventJoypadButton and event.pressed:
+		if register_pad(event.device): return true
+		if not pad_slots.has(event.device): return true
+		match event.button_index:
+			JOY_BUTTON_DPAD_UP: hud.game_menu.navigate(Vector2.UP)
+			JOY_BUTTON_DPAD_DOWN: hud.game_menu.navigate(Vector2.DOWN)
+			JOY_BUTTON_DPAD_LEFT: hud.game_menu.navigate(Vector2.LEFT)
+			JOY_BUTTON_DPAD_RIGHT: hud.game_menu.navigate(Vector2.RIGHT)
+			JOY_BUTTON_B: hud.game_menu.back()
+			JOY_BUTTON_A: hud.game_menu.accept()
+		return true
+	if event is InputEventJoypadMotion and event.axis in [JOY_AXIS_LEFT_X,JOY_AXIS_LEFT_Y]:
+		if pad_slots.has(event.device) and absf(event.axis_value)>.6 and menu_axis_time<=0:
+			hud.game_menu.navigate(Vector2(signf(event.axis_value),0) if event.axis==JOY_AXIS_LEFT_X else Vector2(0,signf(event.axis_value)))
+			menu_axis_time = .22
+		return true
+	if event is InputEventKey and event.pressed:
+		if pad_slots.is_empty(): keyboard_seat = true
+		var focus = get_viewport().gui_get_focus_owner()
+		if focus is LineEdit and focus != hud.code_field and event.keycode not in [KEY_ESCAPE,KEY_BACK]: return false
+		match event.keycode:
+			KEY_UP: hud.game_menu.navigate(Vector2.UP)
+			KEY_DOWN: hud.game_menu.navigate(Vector2.DOWN)
+			KEY_LEFT: hud.game_menu.navigate(Vector2.LEFT)
+			KEY_RIGHT: hud.game_menu.navigate(Vector2.RIGHT)
+			KEY_ESCAPE, KEY_BACK: hud.game_menu.back()
+			KEY_ENTER, KEY_KP_ENTER, KEY_SPACE:
+				if not event.echo: hud.game_menu.accept()
+			_: return false
+		return true
+	return false
 
 func _input(event: InputEvent) -> void:
+	if in_menu and menu_input(event):
+		get_viewport().set_input_as_handled(); return
+	if not in_menu and event is InputEventJoypadButton and event.pressed and not pad_slots.has(event.device):
+		register_pad(event.device)
+		get_viewport().set_input_as_handled(); return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_F11:
 			var fullscreen := DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if fullscreen else DisplayServer.WINDOW_MODE_FULLSCREEN)
 			get_viewport().set_input_as_handled(); return
 		if in_menu: return
+		if hud.help_open and event.physical_keycode not in [KEY_H, KEY_ESCAPE, KEY_M]: return
+		if sim.phase == "reward" and event.physical_keycode in [KEY_LEFT, KEY_RIGHT, KEY_A, KEY_D, KEY_SPACE, KEY_ENTER]:
+			var choice: int = int(reward_choices.get(selected, maxi(0, int(sim.players[selected].get("reward_choice", -1)))))
+			if event.physical_keycode in [KEY_LEFT, KEY_A]: choice = posmod(choice - 1, 3)
+			if event.physical_keycode in [KEY_RIGHT, KEY_D]: choice = posmod(choice + 1, 3)
+			reward_choices[selected] = choice
+			if event.physical_keycode in [KEY_SPACE, KEY_ENTER]: send_command(selected, {"action": "reward", "choice": choice})
+			get_viewport().set_input_as_handled(); return
 		match event.physical_keycode:
 			KEY_H: hud.help_open = not hud.help_open;arena.sound("ui")
 			KEY_M: arena.muted = not arena.muted
@@ -146,23 +226,30 @@ func _input(event: InputEvent) -> void:
 			KEY_TAB:
 				selected = int(local_slots[(local_slots.find(selected) + 1) % local_slots.size()]);arena.sound("ui")
 			KEY_SPACE: send_command(selected, {"action": "ready"})
-			KEY_BACKSPACE: send_command(selected, {"action": "cancel"})
+			KEY_BACKSPACE, KEY_BACK: send_command(selected, {"action": "cancel"})
 			KEY_Q: send_command(selected, {"action": "ability"})
-			KEY_1, KEY_2, KEY_3: send_command(selected, {"action": "reward", "choice": event.physical_keycode - KEY_1})
+			KEY_1, KEY_2, KEY_3:
+				reward_choices[selected] = event.physical_keycode - KEY_1
+				send_command(selected, {"action": "reward", "choice": event.physical_keycode - KEY_1})
 			KEY_ENTER:
 				if sim.phase in ["win", "lose"]: return_menu()
 		get_viewport().set_input_as_handled()
 	elif event is InputEventJoypadButton and event.pressed and not in_menu:
 		var slot := device_slot(event.device)
 		if slot < 0: return
+		if event.button_index == JOY_BUTTON_START:
+			hud.help_open = not hud.help_open
+			get_viewport().set_input_as_handled(); return
+		if hud.help_open: return
 		selected = slot
 		if sim.phase in ["win", "lose"] and event.button_index == JOY_BUTTON_A: return_menu(); return
 		if sim.phase == "reward":
-			var choice: int = int(reward_choices.get(slot, 0))
+			var choice: int = int(reward_choices.get(slot, maxi(0, int(sim.players[slot].get("reward_choice", -1)))))
 			if event.button_index == JOY_BUTTON_DPAD_LEFT: choice = posmod(choice - 1, 3)
 			if event.button_index == JOY_BUTTON_DPAD_RIGHT: choice = posmod(choice + 1, 3)
-			reward_choices[slot] = choice; hud.reward_choice = choice
+			reward_choices[slot] = choice
 			if event.button_index == JOY_BUTTON_A: send_command(slot, {"action": "reward", "choice": choice})
+			if event.button_index == JOY_BUTTON_B: send_command(slot, {"action": "cancel"})
 		else:
 			match event.button_index:
 				JOY_BUTTON_A: send_command(slot, {"action": "ready"})
@@ -171,10 +258,14 @@ func _input(event: InputEvent) -> void:
 				JOY_BUTTON_START: hud.help_open = not hud.help_open
 		get_viewport().set_input_as_handled()
 	elif event is InputEventMouseButton and event.pressed and not in_menu:
-		if sim.phase == "reward" and event.button_index == MOUSE_BUTTON_LEFT:
+		if sim.phase == "reward" and event.button_index == MOUSE_BUTTON_LEFT and not hud.help_open:
 			var point: Vector2 = event.position / hud.scale_factor
 			for i in 3:
-				if Rect2(290 + i * 350, 395, 320, 240).has_point(point): send_command(selected, {"action": "reward", "choice": i})
+				if hud.reward_screen.choice_rect(i).has_point(point):
+					reward_choices[selected] = i
+					send_command(selected, {"action": "reward", "choice": i})
+			for slot in local_slots:
+				if hud.reward_screen.player_rect(int(slot), sim.players.size()).has_point(point): selected = int(slot)
 		elif sim.phase == "plan" and not hud.help_open:
 			if event.button_index == MOUSE_BUTTON_LEFT:
 				var offset: Vector2 = arena.floor_point(event.position) - sim.pos(sim.players[selected])

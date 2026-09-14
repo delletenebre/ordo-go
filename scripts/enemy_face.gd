@@ -19,19 +19,19 @@ func build(arena, r: float, id: int) -> void:
 	radius=r;seed_value=id;blink_at=2.8+fposmod(id*1.713,4.0)
 	var dark=arena.material(Color("080a0e"));var light=arena.material(Color("ffc46c"),0.7)
 	for side in [-1.0,1.0]:
-		var eye:=Node3D.new();add_child(eye);eye.position=Vector3(side*r*0.32,r*1.11,r*0.79);eyes.append(eye)
+		var eye:=Node3D.new();add_child(eye);eye.position=Vector3(side*r*0.32,r*1.17,r*0.97);eyes.append(eye)
 		arena.sphere(eye,Vector3.ZERO,Vector3(r*0.48,r*0.50,r*0.22),dark)
 		arena.sphere(eye,Vector3(0,0,r*0.10),Vector3(r*0.25,r*0.30,r*0.13),light)
 		var pupil=arena.sphere(eye,Vector3(0,0,r*0.165),Vector3(r*0.10,r*0.14,r*0.05),arena.material(Color("161321")));pupils.append(pupil)
 		arena.sphere(eye,Vector3(-r*0.04,r*0.065,r*0.19),Vector3.ONE*r*0.047,arena.material(Color("fff5cd"),0.3))
-		var brow:=Node3D.new();add_child(brow);brow.position=Vector3(side*r*0.32,r*1.39,r*0.78);brows.append(brow)
+		var brow:=Node3D.new();add_child(brow);brow.position=Vector3(side*r*0.32,r*1.44,r*0.95);brows.append(brow)
 		arena.sphere(brow,Vector3.ZERO,Vector3(r*0.49,r*0.085,r*0.10),arena.wool(Color("22212b")))
-	mouth=arena.sphere(self,Vector3(0,r*0.66,r*0.88),Vector3(r*0.33,r*0.07,r*0.08),dark)
-	lip=Node3D.new();add_child(lip);lip.position=Vector3(0,r*0.66,r*0.93)
+	mouth=arena.sphere(self,Vector3(0,r*0.66,r*1.075),Vector3(r*0.33,r*0.07,r*0.08),dark)
+	lip=Node3D.new();add_child(lip);lip.position=Vector3(0,r*0.66,r*1.125)
 	var lip_mesh=arena.ring(lip,Vector3.ZERO,1.0,0.085,arena.wool(Color("bcb29d")));lip_mesh.rotation.x=PI/2
 	lip.scale=Vector3(r*0.165,r*0.035,r*0.04)
 	for side in [-1.0,1.0]:
-		var tooth=arena.sphere(self,Vector3(side*r*0.07,r*0.71,r*0.935),Vector3(r*0.10,r*0.08,r*0.04),arena.wool(Color("e8dbc5")));teeth.append(tooth);tooth.hide()
+		var tooth=arena.sphere(self,Vector3(side*r*0.07,r*0.71,r*1.14),Vector3(r*0.10,r*0.08,r*0.04),arena.wool(Color("e8dbc5")));teeth.append(tooth);tooth.hide()
 
 	var pivot:=Vector3(0,r*.92,0)
 	var tilt:=Basis(Vector3.RIGHT,-.52)

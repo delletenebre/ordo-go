@@ -10,7 +10,7 @@ const command = (action, extra = {}) => {
   send({ type: 'command', slot, data: { action, turn: state.turn, ...extra } });
 };
 function reset(message) {
-  state = null; slot = -1; $('pad').style.display = 'none'; $('join').style.display = 'block'; $('connect').disabled = false; status(message);
+  rewardKey = ''; $('choices').replaceChildren(); state = null; slot = -1; $('pad').style.display = 'none'; $('join').style.display = 'block'; $('connect').disabled = false; status(message);
 }
 $('connect').onclick = () => {
   const code = $('code').value.trim().toUpperCase();
@@ -64,12 +64,27 @@ function render() {
   $('ability').textContent = `${player.ability ? '✓' : '✦'} УМЕНИЕ · ${player.charges}`;
   $('power').disabled = state.phase !== 'plan' || player.ready;
   $('hint').textContent = Object.keys(player.statuses).map(x => ({ frost: 'Холод: −40% скорости', snare: 'Нити: −30% скорости', weak: 'Слабость: −1 урон', burn: 'Горение: −1 здоровье' }[x])).join(' · ') || 'Проведите от своей фишки в сторону броска.';
-  const nextReward = state.phase === 'reward' && !player.reward ? `${state.wave}:${state.reward_options.join()}` : '';
+  $('pad').classList.toggle('reward-phase', state.phase === 'reward');
+  const nextReward = state.phase === 'reward' ? `${state.wave}:${state.reward_options.join()}` : '';
   if (nextReward !== rewardKey) {
     rewardKey = nextReward; $('choices').replaceChildren();
     if (rewardKey) state.reward_options.forEach((key, choice) => {
-      const b = document.createElement('button'); b.textContent = boonNames[key]; b.onclick = () => command('reward', { choice }); $('choices').append(b);
+      const b = document.createElement('button'); b.className = 'boon'; b.setAttribute('aria-label',boonNames[key]);
+      const art = document.createElement('span'); art.className = 'boon-art';
+      const img = document.createElement('img'); img.src = `/boons/${key}.png`; img.alt = ''; art.append(img);
+      const label = document.createElement('span'); label.className = 'boon-label'; label.textContent = boonNames[key];
+      b.append(art,label); b.onclick = () => command('reward', { choice }); $('choices').append(b);
     });
+  }
+  if (rewardKey) {
+    const ready = state.players.filter(p => p.reward).length;
+    $('reward-status').textContent = ready === state.players.length ? `Все готовы · новая волна через ${Math.max(1,Math.ceil(state.timer))}` : `Готовы ${ready} / ${state.players.length} · ${player.reward ? 'Ваш дар выбран' : 'Выберите дар — и вы готовы'}`;
+    [...$('choices').children].forEach((button,index) => {
+      const chosen = player.reward && player.reward_choice === index;
+      button.classList.toggle('chosen',chosen); button.setAttribute('aria-pressed',String(chosen));
+    });
+    $('reward-party').textContent = state.players.map(p => `P${p.id+1}: ${p.reward ? 'готов' : 'выбирает'}`).join(' · ');
+    $('cancel-reward').hidden = !player.reward;
   }
   ctx.clearRect(0, 0, 640, 640);
   ctx.fillStyle = '#68463f'; ctx.beginPath(); ctx.arc(320, 320, 284, 0, Math.PI * 2); ctx.fill();
@@ -90,3 +105,5 @@ function render() {
     ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + Math.cos(angle) * (50 + power * 95), p.y + Math.sin(angle) * (50 + power * 95)); ctx.stroke();
   }
 }
+
+$('cancel-reward').onclick = () => command('cancel');

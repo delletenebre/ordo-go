@@ -1,11 +1,18 @@
 class_name OrdoSimulation
 extends RefCounted
 
+const TeamImpact=preload("res://scripts/team_impact.gd")
+const PlayerClash=preload("res://scripts/player_clash.gd")
+const Runestones = preload("res://scripts/runestones.gd")
+const DRAG := 1.4
+const WALL_BOUNCE := 0.84
+const STONE_BOUNCE := 0.86
 const Spirits = preload("res://scripts/spirits.gd")
 const Catalog = preload("res://scripts/catalog.gd")
 const RADIUS := 6.1
 const CORE_RADIUS := 0.92
 const STEP := 1.0 / 120.0
+const REWARD_READY_DELAY := 2.0
 var rng := RandomNumberGenerator.new()
 var players: Array = []
 var enemies: Array = []
@@ -13,6 +20,10 @@ var hazards: Array = []
 var pickups: Array = []
 var events: Array = []
 var stones: Array = []
+var soul_flights: Array = []
+var rune_drops: Array = []
+var rune_seed:=20260914
+var rune_serial:=0
 var phase := "menu"
 var wave := 0
 var turn := 0
@@ -24,6 +35,7 @@ var phase_time := 0.0
 var event_id := 0
 var entity_id := 10
 var hits: Dictionary = {}
+var team_contacts:Dictionary={}
 var reward_options: Array = []
 var last_reason := ""
 var kills := 0
@@ -34,13 +46,14 @@ func _init() -> void:
 		stones.append({"x": cos(a) * 4.6, "z": sin(a) * 4.6, "r": 0.46})
 
 func start(count: int, mode: int = 1, seed_value: int = 20260914) -> void:
-	rng.seed = seed_value
+	rng.seed = seed_value;rune_seed=seed_value
 	players.clear(); enemies.clear(); hazards.clear(); pickups.clear(); events.clear()
 	phase = "plan"; wave = 0; turn = 0; difficulty = clampi(mode, 0, 2)
 	max_fire = [10, 8, 6][difficulty]; fire = max_fire; kills = 0; event_id = 0; entity_id = 10
 	for i in clampi(count, 1, 4):
 		var a: float = PI * 0.5 + i * TAU / float(clampi(count, 1, 4))
-		players.append({"id": i, "x": cos(a) * 3.5, "z": sin(a) * 3.5, "vx": 0.0, "vz": 0.0, "r": 0.43, "mass": 1.2, "hp": 4, "max_hp": 4, "angle": a + PI, "power": 0.65, "ready": false, "ability": false, "charges": 2, "bonus_charges": 0, "damage": 0, "speed": 1.0, "armor": 0, "armor_per_wave": 0, "shield": 0, "boost": false, "statuses": {}, "reward": false, "spirit": {}, "pending_spirit": ""})
+		players.append({"id": i, "x": cos(a) * 3.5, "z": sin(a) * 3.5, "vx": 0.0, "vz": 0.0, "r": 0.43, "mass": 1.2, "hp": 4, "max_hp": 4, "angle": a + PI, "power": 0.65, "ready": false, "ability": false, "charges": 2, "bonus_charges": 0, "damage": 0, "speed": 1.0, "armor": 0, "armor_per_wave": 0, "shield": 0, "boost": false, "statuses": {}, "reward": false, "reward_choice": -1, "spirit": {}, "pending_spirit": ""})
+	Runestones.reset(self)
 	next_wave()
 
 func pos(e: Dictionary) -> Vector2:
@@ -53,7 +66,8 @@ func place(e: Dictionary, p: Vector2) -> void:
 	e.x = p.x; e.z = p.y
 
 func velocity(e: Dictionary, v: Vector2) -> void:
-	e.vx = v.x; e.vz = v.y
+	var limited:=v.limit_length(Runestones.SPEED_LIMIT)
+	e.vx=limited.x;e.vz=limited.y
 
 func emit(kind: String, p: Vector2, color: int = -1, strength: float = 1.0, message: String = "", details: Dictionary = {}) -> void:
 	event_id += 1
@@ -90,8 +104,9 @@ func next_wave() -> void:
 	begin_plan()
 
 func begin_plan() -> void:
-	phase = "plan"; phase_time = 0.0; turn += 1; hits.clear(); ready_time = 0.0
+	phase = "plan"; phase_time = 0.0; turn += 1; hits.clear();team_contacts.clear(); ready_time = 0.0
 	timer = float(Catalog.wave_spec(wave, players.size(), difficulty).planning)
+	Runestones.expire(self)
 	Spirits.begin_plan(self)
 	for p in players:
 		velocity(p, Vector2.ZERO); p.ready = false; p.ability = false; p.boost = false; p.shield = 0
@@ -127,8 +142,15 @@ func command(slot: int, data: Dictionary) -> bool:
 	if slot < 0 or slot >= players.size(): return false
 	var p: Dictionary = players[slot]
 	if data.get("turn", turn) != turn: return false
-	if phase == "reward" and data.get("action", "") == "reward":
-		return choose_reward(slot, int(data.get("choice", -1)))
+	if phase == "reward":
+		if data.get("action", "") == "reward":
+			return choose_reward(slot, int(data.get("choice", -1)))
+		if data.get("action", "") == "cancel":
+			if not p.reward: return false
+			p.reward = false; p.reward_choice = -1; timer = 0.0
+			emit("cancel", pos(p), slot)
+			return true
+		return false
 	if phase != "plan" or int(p.hp) <= 0: return false
 	var action: String = data.get("action", "aim")
 	if action == "ready":
@@ -148,8 +170,17 @@ func command(slot: int, data: Dictionary) -> bool:
 	return true
 
 func tick(dt: float) -> void:
-	if phase in ["menu", "win", "lose", "reward"]: return
+	Runestones.advance(self,dt)
+	if phase in ["menu", "win", "lose"]: return
 	phase_time += dt
+	if phase == "reward":
+		for p in players:
+			if not p.reward: return
+		timer = maxf(0.0, timer - dt)
+		if timer <= 0.0:
+			for p in players: apply_reward(p, str(reward_options[int(p.reward_choice)]))
+			next_wave()
+		return
 	if phase == "plan":
 		timer = maxf(0.0, timer - dt)
 		var all_ready := true
@@ -174,19 +205,19 @@ func tick(dt: float) -> void:
 	check_end()
 
 func launch_speed(p: Dictionary) -> float:
-	var speed: float = (3.0 + float(p.power) * 8.5) * float(p.speed)
+	var speed: float = (3.0 + float(p.power) * 10.0) * float(p.speed)
 	if Spirits.active(p,"wind"): speed *= 1.25
 	if p.statuses.has("frost"): speed *= 0.6
 	if p.statuses.has("snare"): speed *= 0.7
 	for h in hazards:
 		if h.kind == "ice" and pos(p).distance_to(pos(h)) < float(h.r): speed *= 0.7
-	return speed
+	return minf(speed,Runestones.SPEED_LIMIT)
 
 func launch() -> void:
-	phase = "resolve"; phase_time = 0.0; hits.clear()
+	phase = "resolve"; phase_time = 0.0; hits.clear();team_contacts.clear()
 	for p in players:
 		if int(p.hp) <= 0: continue
-		p.landed_hit=false
+		p.landed_hit=false;p.rune_used=false;p.clash_used=false
 		if not bool(p.ready): p.shield = 1; continue
 		var dir := Vector2(cos(float(p.angle)), sin(float(p.angle)))
 		var speed := launch_speed(p)
@@ -212,10 +243,10 @@ func move_bodies(dt: float, attacking: bool) -> void:
 	for b in bodies:
 		var v := vel(b)
 		var location := pos(b) + v * dt
-		v *= exp(-1.7 * dt)
+		v *= exp(-(DRAG if attacking else 1.7) * dt)
 		if v.length() < 0.07: v = Vector2.ZERO
 		if location.length() > RADIUS - float(b.r):
-			var n := location.normalized(); location = n * (RADIUS - float(b.r)); v = v.bounce(n) * 0.72
+			var n := location.normalized(); location = n * (RADIUS - float(b.r)); v = v.bounce(n) * (WALL_BOUNCE if attacking else .72)
 			if attacking and b.has("kind") and v.length() > 2.4:
 				hit_enemy(b, 1, "wall:%s" % b.id, location)
 		for obstacle in stones + [{"x": 0.0, "z": 0.0, "r": CORE_RADIUS}]:
@@ -225,7 +256,10 @@ func move_bodies(dt: float, attacking: bool) -> void:
 				var n := diff.normalized() if diff.length() > 0.001 else Vector2.RIGHT
 				location = pos(obstacle) + n * min_d
 				if v.dot(n) < 0.0:
-					var impact := v.length(); v = v.bounce(n) * 0.7
+					var impact := v.length()
+					var reflected:=v.bounce(n)
+					var boosted:=Runestones.activate(self,b,obstacle,reflected,attacking)
+					v=boosted if boosted!=Vector2.ZERO else reflected*(STONE_BOUNCE if attacking else .7)
 					if attacking and b.has("kind") and impact > 2.5:
 						hit_enemy(b, 1, "stone:%s" % b.id, location)
 		place(b, location); velocity(b, v)
@@ -236,13 +270,15 @@ func move_bodies(dt: float, attacking: bool) -> void:
 			var separation: float = float(a.r) + float(b.r)
 			if diff.length() >= separation: continue
 			var n := diff.normalized() if diff.length() > 0.001 else Vector2.RIGHT
-			var inv_a := 1.0 / float(a.mass); var inv_b := 1.0 / float(b.mass)
+			var inv_a := 1.0 / Runestones.mass(a,attacking); var inv_b := 1.0 / Runestones.mass(b,attacking)
 			var overlap := separation - diff.length()
 			place(a, pos(a) - n * overlap * inv_a / (inv_a + inv_b))
 			place(b, pos(b) + n * overlap * inv_b / (inv_a + inv_b))
 			var impact := (vel(a) - vel(b)).dot(n)
 			if impact <= 0.0: continue
-			var impulse := n * impact * 1.68 / (inv_a + inv_b)
+			if attacking and PlayerClash.resolve(self,a,b,n):continue
+			var speed_a:=vel(a).length();var speed_b:=vel(b).length()
+			var impulse := n * impact * (1.88 if attacking else 1.68) / (inv_a + inv_b)
 			velocity(a, vel(a) - impulse * inv_a); velocity(b, vel(b) + impulse * inv_b)
 			if impact < 1.7: continue
 			var key := "%s:%s" % [a.id, b.id]
@@ -252,8 +288,14 @@ func move_bodies(dt: float, attacking: bool) -> void:
 			if attacking:
 				if a.has("kind") and b.has("kind"):
 					hit_enemy(a, 1, key + "a", pos(a)); hit_enemy(b, 1, key + "b", pos(b))
-				elif a.has("kind"): player_hit(b, a, key)
-				elif b.has("kind"): player_hit(a, b, key)
+				elif a.has("kind"):
+					var bonus:=TeamImpact.record(self,b,a,speed_b,impact)
+					player_hit(b,a,key)
+					if bonus>0:hit_enemy(a,bonus,"team:"+key,pos(a))
+				elif b.has("kind"):
+					var bonus:=TeamImpact.record(self,a,b,speed_a,impact)
+					player_hit(a,b,key)
+					if bonus>0:hit_enemy(b,bonus,"team:"+key,pos(b))
 			elif a.has("kind") != b.has("kind"):
 				var enemy: Dictionary = a if a.has("kind") else b
 				var player: Dictionary = b if a.has("kind") else a
@@ -262,6 +304,9 @@ func move_bodies(dt: float, attacking: bool) -> void:
 					damage_player(player, 1, "snare" if enemy.kind == "moth" else "")
 					if int(player.hp)<previous_hp: emit("enemy_mood",pos(enemy),-1,1.0,"joy",{"actor":int(enemy.id)})
 					enemy.fired = true
+					if Runestones.boon(player,"thorns") and int(player.rune_boon.retaliated)!=turn:
+						player.rune_boon.retaliated=turn
+						hit_enemy(enemy,1,"thorns:%s:%d"%[player.id,turn],pos(enemy))
 	for p in players:
 		if int(p.hp) <= 0: continue
 		for ally in players:
@@ -299,13 +344,16 @@ func hit_enemy(e: Dictionary, amount: int, key: String, point: Vector2) -> void:
 	hits[key] = true; e.hp -= amount
 	emit("damage", point, -1, float(amount), str(amount),{"target":int(e.id)})
 	if int(e.hp) <= 0:
-		kills += 1; emit("death", point, -1, float(e.r) * 2.0)
+		kills += 1; emit("death",point,-1,float(e.r)*2.0,"",{"target":int(e.id),"radius":float(e.r),"vx":float(e.vx),"vz":float(e.vz),"damage":amount,"team_size":int(team_contacts.get(str(int(e.id)),{}).get("count",1))})
+		Runestones.collect(self,e,point)
 		if rng.randf() < 0.28:
 			entity_id += 1
 			pickups.append({"id": entity_id, "x": point.x, "z": point.y, "kind": "heart" if rng.randf() < 0.55 else "charge"})
 
 func damage_player(p: Dictionary, amount: int, status: String = "") -> void:
 	if int(p.hp) <= 0: return
+	if Runestones.boon(p,"guard"):
+		p.rune_boon={};emit("shield",pos(p),int(p.id),1.0);return
 	for guard in players:
 		if int(guard.hp) > 0 and int(guard.shield) > 0 and (guard.id == p.id or (int(guard.id) == 1 and pos(guard).distance_to(pos(p)) < 2.0)):
 			guard.shield -= 1; emit("shield", pos(p), 1, 1.0); return
@@ -348,7 +396,8 @@ func enemy_actions(dt: float) -> void:
 				var previous_fire:=fire
 				damage_fire(1); e.fired = true
 				if fire<previous_fire:emit("enemy_mood",pos(e),-1,1.0,"joy",{"actor":int(e.id)})
-				if e.kind in ["coal", "moth"]: e.hp = 0; emit("death", pos(e))
+				if e.kind in ["coal", "moth"]:
+					e.hp=0;emit("death",pos(e),-1,float(e.r)*2.0,"",{"target":int(e.id),"radius":float(e.r),"vx":float(e.vx),"vz":float(e.vz),"damage":1})
 			continue
 		if e.attack == "jump":
 			e.jump = minf(1.0, float(e.jump) + dt / (1.70 if int(e.get("chill",0))>0 else 0.95))
@@ -418,30 +467,35 @@ func clear_wave() -> void:
 	emit("clear", Vector2.ZERO, 1, 2.0, "ВОЛНА ПРОЙДЕНА")
 
 func begin_reward() -> void:
-	phase = "reward"; reward_options.clear()
+	phase = "reward"; phase_time = 0.0; timer = 0.0; reward_options.clear()
 	var keys: Array = Catalog.BOONS.keys()
 	for i in range(keys.size() - 1, 0, -1):
 		var j := rng.randi_range(0, i); var swap = keys[i]; keys[i] = keys[j]; keys[j] = swap
 	reward_options = keys.slice(0, 3)
-	for p in players: p.reward = false
+	for p in players:
+		p.reward = false; p.reward_choice = -1; p.ready = false
 
 func choose_reward(slot: int, choice: int) -> bool:
-	if phase != "reward" or choice < 0 or choice >= reward_options.size(): return false
+	if phase != "reward" or slot < 0 or slot >= players.size() or choice < 0 or choice >= reward_options.size(): return false
 	var p: Dictionary = players[slot]
-	if bool(p.reward): return false
-	p.reward = true
-	match reward_options[choice]:
+	if bool(p.reward) and int(p.reward_choice) == choice: return false
+	p.reward = true; p.reward_choice = choice; timer = 0.0
+	emit("ready", pos(p), slot)
+	for other in players:
+		if not bool(other.reward): return true
+	timer = REWARD_READY_DELAY
+	return true
+
+func apply_reward(p: Dictionary, key: String) -> void:
+	# Commit once, only after the whole party has settled on its choices.
+	match key:
 		"stitch": p.max_hp += 1; p.hp = mini(int(p.hp) + 1, int(p.max_hp))
 		"spark": p.damage += 1
 		"stride": p.speed = minf(1.75, float(p.speed) + 0.15)
 		"charge": p.bonus_charges += 1
 		"guard": p.armor_per_wave += 1
 		"mend": fire = mini(max_fire, fire + 2)
-	emit("heal", pos(p), slot, 1.0)
-	for other in players:
-		if not bool(other.reward): return true
-	next_wave()
-	return true
+	emit("heal", pos(p), int(p.id), 1.0)
 
 func check_end() -> void:
 	if phase in ["menu", "win", "lose"]: return
@@ -453,9 +507,12 @@ func check_end() -> void:
 	if not alive: phase = "lose"; emit("defeat",Vector2.ZERO);last_reason = "Все хранители погасли. Касайтесь павших, чтобы поднять их."
 
 func snapshot() -> Dictionary:
-	return {"players": players.duplicate(true), "enemies": enemies.duplicate(true), "hazards": hazards.duplicate(true), "pickups": pickups.duplicate(true), "events": events.duplicate(true), "phase": phase, "wave": wave, "turn": turn, "difficulty": difficulty, "fire": fire, "max_fire": max_fire, "timer": timer, "phase_time": phase_time, "reward_options": reward_options.duplicate(), "kills": kills, "reason": last_reason}
+	return {"team_contacts":team_contacts.duplicate(true),"rune_seed":rune_seed,"rune_serial":rune_serial,"rune_drops":rune_drops.duplicate(true),"stones":stones.duplicate(true),"soul_flights":soul_flights.duplicate(true),"players": players.duplicate(true), "enemies": enemies.duplicate(true), "hazards": hazards.duplicate(true), "pickups": pickups.duplicate(true), "events": events.duplicate(true), "phase": phase, "wave": wave, "turn": turn, "difficulty": difficulty, "fire": fire, "max_fire": max_fire, "timer": timer, "phase_time": phase_time, "reward_options": reward_options.duplicate(), "kills": kills, "reason": last_reason}
 
 func restore(s: Dictionary) -> void:
+	team_contacts=s.get("team_contacts",{})
+	stones=s.get("stones",stones);soul_flights=s.get("soul_flights",[])
+	rune_seed=int(s.get("rune_seed",20260914));rune_serial=int(s.get("rune_serial",0));rune_drops=s.get("rune_drops",[])
 	players = s.players; enemies = s.enemies; hazards = s.hazards; pickups = s.pickups; events = s.events
 	phase = s.phase; wave = int(s.wave); turn = int(s.turn); difficulty = int(s.difficulty)
 	fire = int(s.fire); max_fire = int(s.max_fire); timer = float(s.timer); phase_time = float(s.phase_time)

@@ -20,8 +20,11 @@ func run() -> void:
 	key(KEY_H); check(game.hud.help_open, "Help opens")
 	key(KEY_ESCAPE); check(not game.hud.help_open and not game.in_menu, "Escape closes help before leaving game")
 	game.sim.begin_reward(); key(KEY_1); check(game.sim.players[1].reward, "Reward selected by keyboard")
-	key(KEY_TAB); key(KEY_2); check(game.sim.wave == 2, "All rewards advance wave")
+	key(KEY_TAB); key(KEY_2)
+	for i in 250: game.sim.tick(1.0/120)
+	check(game.sim.wave == 2, "All rewards advance wave")
 	print("INPUT: keyboard, ready/cancel/reselect, help and reward flow; failures=", failures)
+	game.set_process(false);game.arena.stop_audio();await create_timer(.2).timeout
 	game.queue_free()
 	await process_frame
 	await create_timer(0.1).timeout
