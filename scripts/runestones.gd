@@ -1,6 +1,9 @@
 class_name OrdoRunestones
 extends RefCounted
 
+const PLACEMENT_RADIUS := 4.72
+const BODY_RADIUS := 0.44
+const ANGLES := [0.3,1.85,3.4,4.95]
 const SOULS_PER_CHARGE := 2
 const FLIGHT_TIME := 0.65
 const SPEED_LIMIT := 24.0
@@ -12,6 +15,12 @@ const EFFECTS = {
 	"class":{"name":"Дар узора","color":"8fe9dd","text":"Выбрасывает временный класс в свободную точку поля."},
 }
 const ROLLS = ["surge","surge","surge","heal","guard","thorns","class","class"]
+
+static func layout()->Array:
+	var result:Array=[]
+	for angle in ANGLES:
+		result.append({"x":cos(angle)*PLACEMENT_RADIUS,"z":sin(angle)*PLACEMENT_RADIUS,"r":BODY_RADIUS})
+	return result
 
 static func reset(sim) -> void:
 	sim.soul_flights.clear();sim.rune_drops.clear();sim.rune_serial=0
@@ -54,7 +63,7 @@ static func advance(sim, dt: float) -> void:
 	for drop in sim.rune_drops:
 		drop.left=maxf(0,float(drop.left)-dt)
 		if float(drop.left)>0:continue
-		sim.pickups.append({"id":int(drop.id),"kind":"spirit","spirit":drop.spirit,"x":float(drop.x),"z":float(drop.z),"expires":sim.turn+3,"born":sim.turn,"from_rune":true})
+		sim.pickups.append({"id":int(drop.id),"kind":"spirit","spirit":drop.spirit,"x":float(drop.x),"z":float(drop.z),"expires":sim.turn+3,"born":sim.turn,"from_rune":not drop.get("boss_gift",false),"boss_gift":drop.get("boss_gift",false),"boss_id":drop.get("boss_id",-1)})
 		sim.emit("spirit_spawn",sim.pos(drop),-1,.7,drop.spirit)
 	sim.rune_drops=sim.rune_drops.filter(func(drop):return float(drop.left)>0)
 

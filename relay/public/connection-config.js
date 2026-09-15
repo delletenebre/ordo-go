@@ -1,0 +1,1 @@
+globalThis.ORDO_CONNECTION = {};

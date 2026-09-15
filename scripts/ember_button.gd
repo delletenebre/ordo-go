@@ -1,8 +1,8 @@
 extends Button
 static var art: AtlasTexture
-var ember_time := 0.0
+const FocusFire = preload("res://scripts/focus_fire.gd")
+var fire
 var normal: StyleBoxTexture
-var focus_outline := PackedVector2Array()
 
 func _ready() -> void:
 	if art == null:
@@ -15,39 +15,21 @@ func _ready() -> void:
 	add_theme_font_size_override("font_size",23)
 	add_theme_color_override("font_color",Color("ead9ba"))
 	add_theme_color_override("font_focus_color",Color("fff0bf"))
-	for state in ["normal","hover","pressed"]:
+	for state in ["normal","hover","pressed","disabled"]:
 		var box := StyleBoxTexture.new(); box.texture = art
 		box.modulate_color = Color(.75,.72,.68) if state=="normal" else Color.WHITE
+		if state=="disabled": box.modulate_color = Color(.4,.4,.4,.65)
 		add_theme_stylebox_override(state,box)
 		if state=="normal": normal=box
 	add_theme_stylebox_override("focus",StyleBoxEmpty.new())
+	fire=FocusFire.new();add_child(fire);fire.position=-Vector2.ONE*FocusFire.PADDING
 	resized.connect(update_border);update_border()
+	fire.visible=has_focus()
 
 func update_border() -> void:
-	focus_outline.clear()
-	var radius := size.y*.5-2.0
-	for side in 2:
-		var center := Vector2(size.x-radius-2 if side==0 else radius+2,size.y*.5)
-		for i in 33:
-			var angle := -PI*.5+PI*i/32.0+PI*side
-			focus_outline.append(center+Vector2.from_angle(angle)*radius)
-	if not focus_outline.is_empty():focus_outline.append(focus_outline[0])
+	if fire:fire.configure(size)
 
-func _process(dt: float) -> void:
+func _process(_dt: float) -> void:
 	if not is_visible_in_tree(): return
-	ember_time+=dt
 	if normal:normal.modulate_color=Color.WHITE if has_focus() else Color(.75,.72,.68)
-	queue_redraw()
-
-func _draw() -> void:
-	if not has_focus():return
-	if focus_outline.size()>2:
-		draw_polyline(focus_outline,Color(1,.2,.01,.12),24,true)
-		draw_polyline(focus_outline,Color(1,.3,.01,.2),13,true)
-		draw_polyline(focus_outline,Color(1,.47,.025,.65),5,true)
-		draw_polyline(focus_outline,Color(1,.89,.45,.95),1.8,true)
-	for i in 14:
-		var life := fposmod(ember_time*.55+i*.618,1)
-		var p := Vector2(25+fposmod(i*91.0,size.x-50),-2-life*21)
-		draw_circle(p,1.3,Color(1,.67,.12,sin(life*PI)))
-	draw_circle(Vector2(26,size.y*.5),3,Color("ffe49c"))
+	if fire:fire.visible=has_focus()

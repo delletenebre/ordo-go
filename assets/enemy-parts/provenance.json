@@ -1,0 +1,66 @@
+{
+  "source": "/Users/user/projects/ordo/ordo-client/assets/images/enemies/puppet_parts",
+  "use": "Unmodified transparent limb/accessory cutouts; live 3D coal torso and procedural eyes/mouth remain separate.",
+  "parts": {
+    "drifter": [
+      "limb-01",
+      "limb-02",
+      "limb-03",
+      "limb-04",
+      "tendril-01",
+      "tendril-02",
+      "tendril-03"
+    ],
+    "runner": [
+      "limb-01",
+      "limb-02",
+      "limb-03",
+      "limb-04",
+      "crest-01",
+      "crest-02",
+      "crest-03"
+    ],
+    "bulwark": [
+      "arm-01",
+      "arm-02",
+      "foot-01",
+      "foot-02",
+      "shield",
+      "shield-gem"
+    ],
+    "thorn": [
+      "limb-01",
+      "limb-02",
+      "limb-03",
+      "limb-04",
+      "spike-large-01",
+      "spike-large-02",
+      "spike-large-03",
+      "spike-large-04",
+      "spike-medium-01",
+      "spike-medium-02",
+      "spike-medium-03",
+      "spike-medium-04"
+    ],
+    "splitter": [
+      "limb-01",
+      "limb-02",
+      "limb-03",
+      "limb-04",
+      "seam-long",
+      "seam-short-01",
+      "seam-short-02"
+    ],
+    "weaver": [
+      "limb-01",
+      "limb-02",
+      "limb-03",
+      "limb-04",
+      "limb-05",
+      "limb-06",
+      "top-knot",
+      "tail-01",
+      "tail-02"
+    ]
+  }
+}

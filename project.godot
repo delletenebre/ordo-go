@@ -25,3 +25,6 @@ common/physics_ticks_per_second=120
 
 [audio]
 driver/enable_input=false
+
+[editor_plugins]
+enabled=PackedStringArray("res://addons/controller_export/plugin.cfg")

@@ -1,5 +1,5 @@
 extends SceneTree
-const Main = preload("res://scripts/main.gd")
+const Main = preload("res://tests/support/test_main.gd")
 func _init() -> void: call_deferred("run")
 func run() -> void:
 	var game = Main.new();root.add_child(game);await process_frame
@@ -9,14 +9,15 @@ func run() -> void:
 	if mode.begins_with("reward"):
 		game.start_local(4,1);game.sim.begin_reward()
 		game.sim.reward_options=["stitch","spark","stride"] if mode=="reward" else ["charge","guard","mend"]
-		game.sim.choose_reward(0,0);game.sim.choose_reward(1,1);game.sim.choose_reward(2,0)
+		if mode!="reward-focus":
+			game.sim.choose_reward(0,0);game.sim.choose_reward(1,1);game.sim.choose_reward(2,0)
 	else:
 		game.keyboard_seat=true;game.register_pad(10);game.register_pad(11);game.register_pad(12)
 	if mode=="network":
-		game.hud.game_menu.show_network(true)
-		game.hud.room_label.text="КОМНАТА ABC234 · 4 / 4"
-		game.hud.message_label.text="Все хранители у очага. Можно начинать."
-		game.hud.start_button.show();game.hud.start_button.grab_focus()
+		game.net.connected=true;game.net.room="482731";game.net.is_host=true
+		game.hud.game_menu.show_screen("lobby");game.hud.update_lobby()
+	if mode in ["network-empty","keyboard"]:
+		game.hud.game_menu.show_screen("network" if mode=="network-empty" else "join")
 	game.set_process(false)
 	for i in 60:game.arena.render_state(game.sim,1.0/60);await process_frame
 	await RenderingServer.frame_post_draw

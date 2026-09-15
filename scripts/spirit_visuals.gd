@@ -4,7 +4,7 @@ extends Node3D
 const Spirits = preload("res://scripts/spirits.gd")
 const ATLAS = preload("res://assets/spirits-atlas.png")
 const MagicAura = preload("res://scripts/magic_aura.gd")
-const CURSE_COLORS = {"burn": Color("ff704c"), "frost": Color("84cfea"), "snare": Color("ba86e6"), "weak": Color("c071b2"), "ice": Color("84cfea")}
+const CURSE_COLORS = {"burn": Color("ff704c"), "frost": Color("84cfea"), "frozen": Color("84cfea"), "snare": Color("ba86e6"), "weak": Color("c071b2"), "ice": Color("84cfea")}
 static var icons: Dictionary = {}
 var patches: Dictionary = {}
 var fields: Dictionary = {}
@@ -35,7 +35,7 @@ func step(sim, arena, dt: float) -> void:
 			root.add_child(sprite)
 			var aura := MagicAura.new(); root.add_child(aura)
 			aura.setup(Color(Spirits.TYPES[item.spirit].color), 0.36, false, float(item.id))
-			patches[key]={"node":root,"sprite":sprite,"aura":aura,"age":.38 if item.get("from_rune",false) else 0.0,"exit":false,"owner":-1,"item":item.duplicate(),"from":Vector3.ZERO}
+			patches[key]={"node":root,"sprite":sprite,"aura":aura,"age":.38 if item.get("from_rune",false) or item.get("boss_gift",false) else 0.0,"exit":false,"owner":-1,"item":item.duplicate(),"from":Vector3.ZERO}
 		var patch:Dictionary=patches[key];patch.age+=dt
 		patch.node.position=Vector3(float(item.x),0.08+sin(time*1.6+int(item.id))*0.035,float(item.z))
 		patch.node.scale=Vector3.ONE*smoothstep(0.0,0.38,float(patch.age))
@@ -73,7 +73,7 @@ func field(key: String, point: Vector3, color: Color, radius: float, cursed: boo
 func step_fields(sim, arena, dt: float) -> void:
 	for value in fields.values(): value.live = false
 	for item in sim.pickups:
-		if item.kind == "spirit": continue
+		if item.kind in ["spirit", "element"]: continue
 		var color := Color("ff91ae") if item.kind == "heart" else Color("ffd780")
 		field("pickup:%s" % int(item.id), Vector3(float(item.x), 0.08, float(item.z)), color, 0.32, false, 1.0)
 	for hazard in sim.hazards:

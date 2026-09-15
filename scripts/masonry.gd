@@ -30,30 +30,79 @@ static func block(size: Vector3, seed_value: float = 0.0) -> ArrayMesh:
 						surface.add_vertex(p)
 	surface.generate_normals(); return surface.commit()
 
+# Bevelled voussoirs make the altar read as fitted masonry, even up close.
+static func altar_segment(inner: float, outer: float, height: float, span: float) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var bevel := minf(0.028, height * 0.18)
+	var section := PackedVector2Array([
+		Vector2(inner, bevel), Vector2(inner + bevel, 0),
+		Vector2(outer - bevel, 0), Vector2(outer, bevel),
+		Vector2(outer, height - bevel), Vector2(outer - bevel, height),
+		Vector2(inner + bevel, height), Vector2(inner, height - bevel)])
+	for step in 5:
+		var a := -span * 0.5 + span * float(step) / 5.0
+		var b := -span * 0.5 + span * float(step + 1) / 5.0
+		for side in 8:
+			var u := section[side]
+			var v := section[(side + 1) % 8]
+			var edge := v - u
+			var normal := Vector3(cos((a+b)*0.5)*edge.y, -edge.x, sin((a+b)*0.5)*edge.y).normalized()
+			altar_face(st, Vector3(cos(a)*u.x,u.y,sin(a)*u.x), Vector3(cos(b)*u.x,u.y,sin(b)*u.x), Vector3(cos(b)*v.x,v.y,sin(b)*v.x), Vector3(cos(a)*v.x,v.y,sin(a)*v.x), normal)
+	for end in [-1.0, 1.0]:
+		var angle: float = end * span * 0.5
+		var normal: Vector3 = Vector3(-sin(angle),0,cos(angle)) * end
+		var center := Vector3(cos(angle)*(inner+outer)*0.5,height*0.5,sin(angle)*(inner+outer)*0.5)
+		for side in 8:
+			var u := section[side]
+			var v := section[(side+1)%8]
+			altar_face(st, center, Vector3(cos(angle)*u.x,u.y,sin(angle)*u.x), Vector3(cos(angle)*v.x,v.y,sin(angle)*v.x), center, normal)
+	return st.commit()
+
+static func altar_face(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3, normal: Vector3) -> void:
+	var points := [a,b,c,a,c,d]
+	if (b-a).cross(c-a).dot(normal) > 0.0:
+		points = [a,c,b,a,d,c]
+	if d.is_equal_approx(a):
+		points.resize(3)
+	st.set_normal(normal)
+	for point in points:
+		st.add_vertex(point)
+
 static func hearth(arena) -> void:
 	var root := Node3D.new(); root.name = "Hearth"; arena.add_child(root)
-	arena.cylinder(root, Vector3(0, 0.10, 0), 1.13, 0.19, arena.stone_material(Color("443d3b")))
-	for course in 2:
-		for i in 12:
-			var a := TAU * (i + course * 0.5) / 12.0
-			var radius := 0.87 if course == 0 else 0.80
-			var color := Color("796f61").lightened(sin(i * 4.1 + course) * 0.12)
-			var rock = arena.mesh_node(root, block(Vector3(0.45, 0.30, 0.34), i + course * 12), Vector3(cos(a) * radius, 0.20 + course * 0.25, sin(a) * radius), arena.stone_material(color))
-			rock.rotation.y = -a - PI / 2
-	# A dark bowl, coals and crossed charred logs give the flame a physical source.
-	arena.cylinder(root, Vector3(0, 0.22, 0), 0.68, 0.18, arena.stone_material(Color("24222b")))
-	for i in 5:
-		var log_mesh = arena.mesh_node(root, block(Vector3(0.23, 0.16, 1.10), i), Vector3(sin(i * 5.0) * 0.21, 0.35 + i * 0.018, cos(i * 5.0) * 0.12), arena.wool(Color("382725")))
-		log_mesh.rotation.y = i * 1.22
-	for i in 19:
-		var a := i * 2.39996; var r := 0.53 * sqrt((i + 1) / 20.0)
-		var coal = arena.mesh_node(root, block(Vector3(0.11, 0.075, 0.10), i), Vector3(cos(a)*r, 0.43, sin(a)*r), arena.material(Color("eb6732"), 0.8))
-		coal.rotation.y = a
-	# Small radial foundation stones, with gaps and a weathered outer rim.
-	for i in 16:
-		var a := TAU * i / 16.0
-		var foot = arena.mesh_node(root, block(Vector3(0.24, 0.12, 0.35), i), Vector3(cos(a)*1.05, 0.08, sin(a)*1.05), arena.stone_material(Color("68605b")))
-		foot.rotation.y = -a - PI/2
+	arena.cylinder(root, Vector3(0, 0.09, 0), 1.13, 0.16, arena.stone_material(Color("494143")))
+	var courses := [Vector4(0.52,1.11,0.13,0.12), Vector4(0.62,0.98,0.23,0.24)]
+	for course in courses.size():
+		var dims: Vector4 = courses[course]
+		var mesh := altar_segment(dims.x,dims.y,dims.z,TAU/16.0-0.016)
+		for i in 16:
+			var color := Color("82705b").lightened(sin(i*3.7+course)*0.065)
+			var stone = arena.mesh_node(root,mesh,Vector3(0,dims.w,0),arena.stone_material(color))
+			stone.rotation.y = TAU*(float(i)+course*0.5)/16.0
+	# A recessed floor and a small raised offering bowl inside the broad stone step.
+	arena.cylinder(root,Vector3(0,0.235,0),0.62,0.09,arena.stone_material(Color("56422e")))
+	arena.cylinder(root,Vector3(0,0.29,0),0.44,0.12,arena.stone_material(Color("6f4e2e")),0.40)
+	var bowl_mesh := altar_segment(0.29,0.43,0.115,TAU/12.0-0.026)
+	for i in 12:
+		var stone = arena.mesh_node(root,bowl_mesh,Vector3(0,0.34,0),arena.stone_material(Color("8c6036").lightened(sin(i*4.0)*0.06)))
+		stone.rotation.y = i*TAU/12.0
+	arena.cylinder(root,Vector3(0,0.36,0),0.29,0.035,arena.stone_material(Color("473326")))
+	arena.cylinder(root,Vector3(0,0.39,0),0.095,0.025,arena.material(Color("ffc15d"),1.2))
+	arena.ring(root,Vector3(0,0.385,0),0.17,0.009,arena.material(Color("dc913a"),0.6))
+	arena.ring(root,Vector3(0,0.40,0),0.265,0.014,arena.material(Color("ffbd53"),1.5))
+	# Four squat buttresses frame the flame without enclosing it in a tall wall.
+	for i in 4:
+		var angle := PI*0.25 + i*PI*0.5
+		var foot := Node3D.new(); root.add_child(foot)
+		foot.position = Vector3(cos(angle)*0.94,0,sin(angle)*0.94)
+		foot.rotation.y = -angle-PI*0.5
+		arena.mesh_node(foot,block(Vector3(0.40,0.14,0.46),100+i),Vector3(0,0.19,0.015),arena.stone_material(Color("5d5150")))
+		for level in 2:
+			arena.mesh_node(foot,block(Vector3(0.28,0.22,0.33),120+i*3+level),Vector3(0,0.35+level*0.20,0),arena.stone_material(Color("756454")))
+		arena.mesh_node(foot,block(Vector3(0.35,0.13,0.40),140+i),Vector3(0,0.68,0),arena.stone_material(Color("635756")))
+	var tablet = arena.mesh_node(root,block(Vector3(0.37,0.40,0.18),166),Vector3(0,0.59,-0.81),arena.stone_material(Color("82735f")))
+	tablet.rotation.x = -0.10
 
 static func wall(arena) -> void:
 	var root := Node3D.new(); root.name = "Rampart"; arena.add_child(root)
@@ -110,8 +159,8 @@ static func lantern(arena, p: Vector3, index: int) -> void:
 		var points:=PackedVector3Array()
 		for j in 17:
 			var t:=float(j)/16
-			var r:=.35*(1.0-pow(t,3.4))+.01
-			points.append(Vector3(cos(a)*r,.40+t*.84,sin(a)*r))
+			var r:=.35-.035*t+sin(t*PI)*.025
+			points.append(Vector3(cos(a)*r,.40+t*.48,sin(a)*r))
 		OrdoWoolMesh.thread_path(root,points,.022,iron)
 		arena.sphere(root,Vector3(cos(a)*.364,.48,sin(a)*.364),Vector3.ONE*.047,bronze)
 		# Paired forged scrolls around the bowl echo the ram-horn ornament.
@@ -122,11 +171,11 @@ static func lantern(arena, p: Vector3, index: int) -> void:
 				var along: float = side*(.06+cos(angle)*r)
 				scroll.append(Vector3(cos(a)*.353-sin(a)*along,.58+sin(angle)*r,sin(a)*.353+cos(a)*along))
 			OrdoWoolMesh.thread_path(root,scroll,.014,bronze)
-	arena.sphere(root,Vector3(0,1.25,0),Vector3(.065,.105,.065),bronze)
+	arena.sphere(root,Vector3(0,.32,0),Vector3(.065,.105,.065),bronze)
 	var origin:=p+Vector3(0,.43,0)
 	arena.make_flame(origin,.59)
 	var light := OmniLight3D.new();light.name="Firelight%d"%index
 	light.position=origin+Vector3(0,.28,0);light.light_color=Color("ffad57")
-	light.light_energy=2.8;light.omni_range=2.9;light.omni_attenuation=1.3
+	light.light_energy=1.9;light.omni_range=2.5;light.omni_attenuation=1.3
 	light.shadow_enabled=true;light.shadow_bias=.04;light.omni_shadow_mode=OmniLight3D.SHADOW_CUBE
 	arena.add_child(light);arena.torches.append({"light":light,"phase":index*1.73,"origin":origin})

@@ -2,18 +2,35 @@ class_name OrdoWoolMesh
 extends RefCounted
 
 static func token(radius: float) -> ArrayMesh:
-	# One opaque padded body. No intersecting cylinder, dome or label planes.
-	var profile := [Vector2(0,0.05),Vector2(radius*0.78,0.05),Vector2(radius*0.98,0.065),Vector2(radius*1.06,0.10),Vector2(radius*1.08,0.15),Vector2(radius*1.04,0.21),Vector2(radius*0.90,0.24),Vector2(radius*0.82,0.20),Vector2(radius*0.74,0.215),Vector2(radius*0.55,0.245),Vector2(radius*0.26,0.258),Vector2(0,0.26)]
+	# Rounded wool binding, shallow inset, and a softly padded felt face.
+	var profile := [Vector2(0,.035),Vector2(radius*.78,.035),Vector2(radius*.98,.05),Vector2(radius*1.045,.09),Vector2(radius*1.055,.135),Vector2(radius*1.025,.18),Vector2(radius*.97,.218),Vector2(radius*.90,.232),Vector2(radius*.83,.213),Vector2(radius*.78,.19),Vector2(radius*.71,.222),Vector2(radius*.56,.244),Vector2(radius*.32,.255),Vector2(0,.26)]
 	var tool := SurfaceTool.new(); tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	for ring in range(profile.size() - 1):
 		for i in 80:
 			for corner in [Vector2(i, ring), Vector2(i + 1, ring), Vector2(i + 1, ring + 1), Vector2(i, ring), Vector2(i + 1, ring + 1), Vector2(i, ring + 1)]:
 				var a: float = corner.x * TAU / 80.0
 				var point: Vector2 = profile[int(corner.y)]
-				var r := point.x * (1.0 + sin(a * 5.0) * 0.008 + sin(a * 11.0) * 0.004)
+				var r := point.x * (1.0 + sin(a * 5.0) * 0.008 + sin(a * 11.0) * 0.004 + sin(a * 23.0) * 0.002)
 				tool.set_uv(Vector2(corner.x / 80.0, float(corner.y) / (profile.size() - 1)))
 				tool.add_vertex(Vector3(cos(a) * r, point.y, sin(a) * r))
 	tool.generate_normals(); return tool.commit()
+
+static func token_fibers(radius: float, seed_value: int) -> ArrayMesh:
+	var rng := RandomNumberGenerator.new(); rng.seed = 401 + seed_value
+	var tool := SurfaceTool.new(); tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in 560:
+		var angle := rng.randf() * TAU
+		var cross_angle := rng.randf_range(-.25, 2.25)
+		var outward := Vector3(cos(angle), 0, sin(angle))
+		var along := Vector3(-sin(angle), 0, cos(angle))
+		var normal := outward * cos(cross_angle) + Vector3.UP * sin(cross_angle)
+		var base := outward * radius * (.90 + .155*cos(cross_angle))
+		base.y = .135 + .095*sin(cross_angle)
+		var tip := base + normal*rng.randf_range(.005,.013) + along*rng.randf_range(-.009,.009)
+		var width := along * rng.randf_range(.0008,.0016)
+		for point in [base-width,base+width,tip,tip,base+width,base-width]:
+			tool.set_normal(normal); tool.add_vertex(point)
+	return tool.commit()
 
 static func thread_path(parent: Node3D, points: PackedVector3Array, width: float, material: Material) -> MultiMeshInstance3D:
 	var mesh := CapsuleMesh.new(); mesh.radius = width; mesh.height = 1.0; mesh.radial_segments = 8; mesh.rings = 2

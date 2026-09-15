@@ -1,7 +1,7 @@
 extends SceneTree
 
 # Deterministic real-render check: four team colors, enemy intent, contacts and a bounce.
-const Main = preload("res://scripts/main.gd")
+const Main = preload("res://tests/support/test_main.gd")
 
 func _init() -> void:
 	call_deferred("run")

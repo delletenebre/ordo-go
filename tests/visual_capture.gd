@@ -1,5 +1,5 @@
 extends SceneTree
-const Main=preload("res://scripts/main.gd")
+const Main=preload("res://tests/support/test_main.gd")
 var game
 func _init()->void:call_deferred("run")
 func run()->void:

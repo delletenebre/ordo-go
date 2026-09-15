@@ -2,6 +2,8 @@ extends RefCounted
 const Catalog = preload("res://scripts/catalog.gd")
 const Wool = preload("res://assets/wool-detail.png")
 const Caps = preload("res://assets/player-caps-v2.png")
+const FocusFire = preload("res://scripts/focus_fire.gd")
+var fires: Dictionary = {}
 var icons: Dictionary = {}
 
 func prepare() -> void:
@@ -22,20 +24,18 @@ func backdrop(hud) -> void:
 		for x in range(45, 1555, 22):
 			hud.draw_line(Vector2(x, y-2), Vector2(x+10, y+2), Color("97704a"), 3, true)
 
+func begin_frame() -> void:
+	for fire in fires.values():fire.hide()
+
 func fire_ring(hud, center: Vector2, radius: float, strength: float = 1.0) -> void:
-	var pulse := 0.9 + 0.1 * sin(hud.clock * 4.3)
-	hud.draw_texture_rect(hud.aim_halo, Rect2(center-Vector2.ONE*radius*1.5, Vector2.ONE*radius*3), false, Color(1, 0.27, 0.025, 0.4*strength))
-	for layer in range(4, 0, -1):
-		hud.draw_arc(center, radius, 0, TAU, 112, Color(1, 0.22+layer*0.05, 0.015, 0.07*strength*pulse), layer*7, true)
-	hud.draw_arc(center, radius, 0, TAU, 112, Color(1, 0.53, 0.06, strength), 4.8, true)
-	hud.draw_arc(center, radius-0.8, 0, TAU, 112, Color(1, 0.91, 0.47, strength), 1.8, true)
-	for i in 24:
-		var life := fposmod(hud.clock * 0.5 + i * 0.618, 1.0)
-		var angle := i * 2.4 + sin(hud.clock*1.3+i)*0.04
-		var point := center + Vector2.from_angle(angle) * (radius+3+life*30) + Vector2(0, -life*18)
-		var opacity := sin(life*PI)*strength
-		hud.draw_texture_rect(hud.aim_halo, Rect2(point-Vector2(8,8),Vector2(16,16)),false,Color(1,0.35,0.03,opacity*.5))
-		hud.draw_circle(point, 1.3+sin(i)*0.5, Color(1,0.72,0.16,opacity))
+	var key := "%s:%s" % [center,radius]
+	if not fires.has(key):
+		var flame=FocusFire.new();hud.add_child(flame);fires[key]=flame
+	var fire=fires[key]
+	fire.configure(Vector2.ONE*radius*2,strength)
+	fire.position=(center-Vector2.ONE*(radius+FocusFire.PADDING))*hud.scale_factor
+	fire.scale=Vector2.ONE*hud.scale_factor
+	fire.show()
 
 func token(hud, id: int, center: Vector2, diameter: float) -> void:
 	# Sample only the round authored puck, excluding the atlas cell corners.
@@ -64,11 +64,10 @@ func draw(hud) -> void:
 		var rect := choice_rect(i)
 		var center := Vector2(rect.get_center().x,449)
 		var chosen: bool = selected_choice == i
-		if chosen: fire_ring(hud,center,144)
-		hud.draw_texture_rect(icons[key],Rect2(center-Vector2(160,160),Vector2(320,320)),false)
-		if not chosen and cursor == i:
-			hud.draw_arc(center,146,PI*.15,PI*.85,36,Color("bd9970"),2,true)
-			hud.draw_circle(center+Vector2(0,145),3,hud.cream)
+		var active: bool = chosen or cursor == i
+		var diameter := 320.0 if active else 256.0
+		if active: fire_ring(hud,center,144,1.0 if chosen else .9)
+		hud.draw_texture_rect(icons[key],Rect2(center-Vector2.ONE*diameter*0.5,Vector2.ONE*diameter),false)
 		hud.text_at(boon.name,Vector2(rect.position.x,641),26,hud.cream,HORIZONTAL_ALIGNMENT_CENTER,rect.size.x)
 		var words := str(boon.text).split(" ")
 		var line := ""
@@ -85,7 +84,6 @@ func draw(hud) -> void:
 		for j in owners.size():
 			var pos := center+Vector2((j-(owners.size()-1)*0.5)*42,-170)
 			token(hud,owners[j],pos,43)
-		hud.text_at(str(i+1),Vector2(center.x-15,612),14,hud.gold,HORIZONTAL_ALIGNMENT_CENTER,30)
 	var ready := 0
 	for p in sim.players:
 		var id := int(p.id)
@@ -102,4 +100,4 @@ func draw(hud) -> void:
 	var status := "ГОТОВЫ  %d / %d" % [ready,sim.players.size()]
 	if ready == sim.players.size(): status = "ВСЕ ГОТОВЫ · НОВАЯ ВОЛНА ЧЕРЕЗ %d" % maxi(1,ceili(sim.timer))
 	hud.text_at(status,Vector2(0,753),18,hud.gold,HORIZONTAL_ALIGNMENT_CENTER,1600)
-	hud.text_at("1 / 2 / 3 — выбрать   ·   ← → + A / OK — выбрать   ·   B / Backspace — отменить   ·   Tab — игрок",Vector2(0,927),16,Color("b3a48e"),HORIZONTAL_ALIGNMENT_CENTER,1600)
+	hud.text_at("1 / 2 / 3 — выбрать   ·   ← → + A / OK — выбрать   ·   B / Backspace — отменить",Vector2(0,927),16,Color("b3a48e"),HORIZONTAL_ALIGNMENT_CENTER,1600)

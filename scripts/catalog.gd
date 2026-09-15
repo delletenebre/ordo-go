@@ -2,6 +2,8 @@ class_name OrdoCatalog
 extends RefCounted
 
 const COLORS = [Color("43cfff"), Color("ffc65c"), Color("58e0a0"), Color("ff6d78")]
+const AIM_COLORS = [Color("168dff"), Color("ffb624"), Color("37ec47"), Color("ff344c")]
+const TOKEN_COLORS = [Color("1864ca"), Color("d88b18"), Color("32853c"), Color("b93238")]
 const NAMES = ["ТАРАН", "СТРАЖ", "ВЕТЕР", "ИСКРА"]
 const SYMBOLS = ["△", "⬡", "◇", "○"]
 const ABILITIES = ["Двойной удар", "Защитный купол", "Порыв ветра", "Взрыв при ударе"]

@@ -3,9 +3,11 @@ extends Node3D
 var eyes: Array=[]
 var brows: Array=[]
 var brow_origins:Array=[]
-var pupils: Array=[]
-var mouth: MeshInstance3D
-var lip:Node3D
+var eye_cores: Array=[]
+var mouth:Node3D
+var mouth_materials:Array[ShaderMaterial]=[]
+var mouth_size:=Vector2(.43,.14)
+var mouth_curve:=0.0
 var teeth: Array=[]
 var radius:=0.4
 var time:=0.0
@@ -17,21 +19,30 @@ var seed_value:=0
 
 func build(arena, r: float, id: int) -> void:
 	radius=r;seed_value=id;blink_at=2.8+fposmod(id*1.713,4.0)
-	var dark=arena.material(Color("080a0e"));var light=arena.material(Color("ffc46c"),0.7)
+	var dark=arena.wool(Color("101219"));var light=arena.material(Color("e99b29"),0.22)
+	light.roughness=.26;light.metallic=.12
+	var inner_fire:=ShaderMaterial.new();inner_fire.shader=preload("res://shaders/coal_eye.gdshader")
 	for side in [-1.0,1.0]:
 		var eye:=Node3D.new();add_child(eye);eye.position=Vector3(side*r*0.32,r*1.17,r*0.97);eyes.append(eye)
-		arena.sphere(eye,Vector3.ZERO,Vector3(r*0.48,r*0.50,r*0.22),dark)
-		arena.sphere(eye,Vector3(0,0,r*0.10),Vector3(r*0.25,r*0.30,r*0.13),light)
-		var pupil=arena.sphere(eye,Vector3(0,0,r*0.165),Vector3(r*0.10,r*0.14,r*0.05),arena.material(Color("161321")));pupils.append(pupil)
-		arena.sphere(eye,Vector3(-r*0.04,r*0.065,r*0.19),Vector3.ONE*r*0.047,arena.material(Color("fff5cd"),0.3))
+		arena.sphere(eye,Vector3.ZERO,Vector3(r*0.35,r*0.39,r*0.18),dark)
+		var core=arena.sphere(eye,Vector3(0,0,r*0.10),Vector3(r*0.22,r*0.29,r*0.13),inner_fire)
+		eye_cores.append(core)
 		var brow:=Node3D.new();add_child(brow);brow.position=Vector3(side*r*0.32,r*1.44,r*0.95);brows.append(brow)
 		arena.sphere(brow,Vector3.ZERO,Vector3(r*0.49,r*0.085,r*0.10),arena.wool(Color("22212b")))
-	mouth=arena.sphere(self,Vector3(0,r*0.66,r*1.075),Vector3(r*0.33,r*0.07,r*0.08),dark)
-	lip=Node3D.new();add_child(lip);lip.position=Vector3(0,r*0.66,r*1.125)
-	var lip_mesh=arena.ring(lip,Vector3.ZERO,1.0,0.085,arena.wool(Color("bcb29d")));lip_mesh.rotation.x=PI/2
-	lip.scale=Vector3(r*0.165,r*0.035,r*0.04)
+	mouth=Node3D.new();mouth.position=Vector3(0,r*.63,r*1.10);add_child(mouth)
+	for is_rim in [false,true]:
+		var mat:=ShaderMaterial.new();mat.shader=preload("res://shaders/mouth.gdshader")
+		mat.set_shader_parameter("rim",is_rim);mat.set_shader_parameter("mouth_color",Color("ffc875") if is_rim else Color("0c0e13"))
+		mat.set_shader_parameter("thickness",r*.039)
+		mouth_materials.append(mat)
+		if is_rim:
+			var edge=arena.mesh_node(mouth,preload("res://scripts/mouth_mesh.gd").rim(),Vector3.ZERO,mat)
+			edge.custom_aabb=AABB(Vector3(-r,-r,-r),Vector3.ONE*r*2)
+		else:
+			var cavity:=SphereMesh.new();cavity.radius=1.0;cavity.height=2.0;cavity.radial_segments=48;cavity.rings=16
+			arena.mesh_node(mouth,cavity,Vector3.ZERO,mat)
 	for side in [-1.0,1.0]:
-		var tooth=arena.sphere(self,Vector3(side*r*0.07,r*0.71,r*1.14),Vector3(r*0.10,r*0.08,r*0.04),arena.wool(Color("e8dbc5")));teeth.append(tooth);tooth.hide()
+		var tooth=arena.sphere(mouth,Vector3(side*r*.085,r*.015,r*.025),Vector3(r*.09,r*.07,r*.035),light);teeth.append(tooth);tooth.hide()
 
 	var pivot:=Vector3(0,r*.92,0)
 	var tilt:=Basis(Vector3.RIGHT,-.52)
@@ -56,24 +67,27 @@ func step(dt: float, look: Vector2) -> void:
 		blink_age=0.0;blink_at=time+3.2+fposmod(seed_value*1.13+time,3.8)
 	blink_age+=dt
 	var blink:=1.0-0.94*sin(clampf(blink_age/0.17,0,1)*PI) if blink_age<0.17 and mood=="neutral" else 1.0
-	var eye_scale:=Vector2.ONE;var mouth_size:=Vector2(0.33,0.16);var brow_angle:=0.0;var brow_raise:=0.0
+	var eye_scale:=Vector2.ONE;var target_size:=Vector2(.43,.14);var target_curve:=0.0;var brow_angle:=0.0;var brow_raise:=0.0
 	match mood:
-		"anger":eye_scale=Vector2(1.0,0.73);brow_angle=0.35;mouth_size=Vector2(0.39,0.11)
-		"hate":eye_scale=Vector2(0.98,0.55);brow_angle=0.46;mouth_size=Vector2(0.39,0.095)
-		"surprise":eye_scale=Vector2(1.10,1.25);mouth_size=Vector2(0.25,0.31);brow_raise=0.11
-		"fear":eye_scale=Vector2(1.14,1.30);mouth_size=Vector2(0.38,0.34);brow_angle=-0.24;brow_raise=0.09
-		"joy":eye_scale=Vector2(1.08,0.64);mouth_size=Vector2(0.50,0.22);brow_angle=-0.17
-		"mock":eye_scale=Vector2(1.07,0.52);mouth_size=Vector2(0.52,0.15+0.15*(0.5+0.5*sin(time*17)));brow_angle=-0.13
+		"anger":eye_scale=Vector2(1.0,.73);brow_angle=.35;target_size=Vector2(.57,.12);target_curve=.08
+		"hate":eye_scale=Vector2(.98,.55);brow_angle=.46;target_size=Vector2(.55,.095);target_curve=.10
+		"surprise":eye_scale=Vector2(1.10,1.25);target_size=Vector2(.30,.38);brow_raise=.11
+		"fear":eye_scale=Vector2(1.14,1.30);target_size=Vector2(.42,.43);brow_angle=-.24;brow_raise=.09
+		"joy":eye_scale=Vector2(1.08,.64);target_size=Vector2(.63,.25);target_curve=-.13;brow_angle=-.17
+		"mock":eye_scale=Vector2(1.07,.52);target_size=Vector2(.62,.18+.15*(.5+.5*sin(time*17)));target_curve=-.11;brow_angle=-.13
 	var blend:=1.0-exp(-18.0*dt)
+	mouth_size=mouth_size.lerp(target_size,blend);mouth_curve=lerpf(mouth_curve,target_curve,blend)
+	for mat in mouth_materials:
+		mat.set_shader_parameter("mouth_size",mouth_size*radius*.5)
+		mat.set_shader_parameter("curve",mouth_curve*radius)
 	for i in 2:
 		var side:float=-1.0 if i==0 else 1.0
+		brows[i].visible=mood!="neutral"
 		eyes[i].scale=eyes[i].scale.lerp(Vector3(eye_scale.x,eye_scale.y*blink,1.0),blend)
-		pupils[i].position.x=lerpf(pupils[i].position.x,clampf(look.x,-1,1)*radius*0.065,blend)
-		pupils[i].position.y=lerpf(pupils[i].position.y,-clampf(look.y,-1,1)*radius*0.035,blend)
+		eye_cores[i].position.x=lerpf(eye_cores[i].position.x,clampf(look.x,-1,1)*radius*.022,blend)
+		eye_cores[i].position.y=lerpf(eye_cores[i].position.y,-clampf(look.y,-1,1)*radius*.014,blend)
 		brows[i].rotation.z=lerpf(brows[i].rotation.z,side*brow_angle,blend)
 		brows[i].position.y=lerpf(brows[i].position.y,brow_origins[i].y+radius*brow_raise,blend)
-		teeth[i].visible=mood in ["joy","mock","anger","hate"]
-		pupils[i].scale.x=lerpf(pupils[i].scale.x,radius*(0.065 if mood=="hate" else 0.10),blend)
-	lip.scale=lip.scale.lerp(Vector3(radius*mouth_size.x*.5,radius*mouth_size.y*.5,radius*.04),blend)
-	mouth.scale=mouth.scale.lerp(Vector3(radius*mouth_size.x,radius*mouth_size.y,radius*0.08),blend)
+		teeth[i].visible=false
+		teeth[i].position.y=radius*(mouth_size.y*.36+mouth_curve*.72-.04)
 	position.y=sin(time*17)*radius*0.025 if mood=="mock" else 0.0

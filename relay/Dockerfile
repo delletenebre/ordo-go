@@ -5,6 +5,7 @@ RUN npm ci --omit=dev
 COPY relay/server.mjs ./
 COPY relay/public ./public
 COPY assets/boons /app/assets/boons
+COPY assets/avatars /app/assets/avatars
 USER node
 EXPOSE 8787
 CMD ["node", "server.mjs"]

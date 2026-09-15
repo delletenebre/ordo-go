@@ -15,6 +15,7 @@ var rng:=RandomNumberGenerator.new()
 func _ready() -> void:
 	rng.seed=7219
 	for effect in EFFECTS:effects[effect]=load("res://assets/audio/%s.wav"%effect)
+	effects["steam"] = steam_sound()
 	for i in 16:
 		var voice:=AudioStreamPlayer.new();add_child(voice);voices.append(voice)
 	menu_music=loop_player("menu");interlude_music=loop_player("interlude")
@@ -63,3 +64,19 @@ func stop() -> void:
 	for voice in voices+[menu_music,interlude_music,fire,slide]:
 		if is_instance_valid(voice):voice.stop();voice.stream=null
 func _exit_tree() -> void:stop()
+
+static func steam_sound() -> AudioStreamWAV:
+	var stream := AudioStreamWAV.new()
+	stream.format = AudioStreamWAV.FORMAT_16_BITS; stream.mix_rate = 22050
+	var samples := PackedByteArray(); samples.resize(22050*2)
+	var noise := RandomNumberGenerator.new(); noise.seed = 83711
+	var low := 0.0
+	for i in 22050:
+		var t := float(i)/22050.0
+		var white := noise.randf_range(-1,1)
+		low = lerpf(low,white,.17)
+		var envelope := (1.0-exp(-t*140.0))*exp(-t*4.8)*(1.0-smoothstep(.7,1.0,t))
+		var sample := (white*.40+low*.60)*envelope*.65
+		samples.encode_s16(i*2,int(clampf(sample,-1,1)*32767))
+	stream.data=samples
+	return stream

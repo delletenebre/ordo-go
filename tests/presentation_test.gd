@@ -12,12 +12,14 @@ func run() -> void:
 	var sim := Sim.new(); sim.start(1,1,42)
 	sim.stones.clear(); sim.enemies.clear()
 	var p: Dictionary = sim.players[0]
-	sim.place(p,Vector2(0,3.5)); p.angle=0.0; p.power=0.15
+	# Keep the weak trajectory short of the wall after the stronger launch tuning.
+	sim.place(p,Vector2(0,3.5)); p.angle=0.0; p.power=0.15; p.speed=.5
 	var before := JSON.stringify(sim.snapshot())
 	var low := Preview.trace(sim,p)
 	check(JSON.stringify(sim.snapshot())==before,"Preview is read-only")
 	p.power=0.70; var high := Preview.trace(sim,p)
 	check(low.points[1].distance_to(sim.pos(p))<high.points[1].distance_to(sim.pos(p)),"Power changes useful range")
+	p.speed=1.0
 	var base_speed := sim.launch_speed(p)
 	p.statuses={"frost":1,"snare":1}
 	check(is_equal_approx(sim.launch_speed(p),base_speed*0.6*0.7),"Preview and throw share debuff speed")

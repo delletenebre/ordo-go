@@ -75,7 +75,8 @@ func run()->void:
 	# The preview must distinguish an accelerating rune from a defensive gift.
 	sim.start(1,1,42);sim.enemies.clear();sim.pickups.clear();p=sim.players[0]
 	sim.stones=[{"id":0,"x":3.0,"z":3.0,"r":.46,"collector":true,"souls":2,"effect":"surge"}]
-	sim.place(p,Vector2(1,3));p.angle=0;p.power=.7
+	# Neither reflected endpoint should be capped by the far wall in this test.
+	sim.place(p,Vector2(1,3));p.angle=0;p.power=.15;p.speed=.65
 	var boosted_preview:=Preview.trace(sim,p)
 	sim.stones[0].effect="guard";var plain_preview:=Preview.trace(sim,p)
 	check(boosted_preview.boost_segment==1 and plain_preview.boost_segment==-1,"Preview only accelerates a surge gift")

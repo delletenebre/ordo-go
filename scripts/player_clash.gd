@@ -12,7 +12,7 @@ static func eligible(a: Dictionary,b: Dictionary,va:Vector2,vb:Vector2,normal:Ve
 	var da:=va.normalized();var db:=vb.normalized()
 	return da.dot(-db)>=FACING_DOT and da.dot(normal)>=FACING_DOT and db.dot(-normal)>=FACING_DOT
 
-static func resolve(sim,a:Dictionary,b:Dictionary,normal:Vector2) -> bool:
+static func resolve(sim,a:Dictionary,b:Dictionary,normal:Vector2,quenched:bool=false) -> bool:
 	var va:Vector2=sim.vel(a);var vb:Vector2=sim.vel(b)
 	if not eligible(a,b,va,vb,normal):return false
 	var multiplier:=3 if minf(va.length(),vb.length())>=HEAVY_SPEED else 2
@@ -26,5 +26,5 @@ static func resolve(sim,a:Dictionary,b:Dictionary,normal:Vector2) -> bool:
 	sim.velocity(a,first*first_speed);sim.velocity(b,second*second_speed)
 	a.clash_used=true;b.clash_used=true
 	var center:Vector2=(sim.pos(a)+sim.pos(b))*.5
-	sim.emit("clash",center,-1,float(multiplier),"ТЫДЫЩ!",{"a":int(a.id),"b":int(b.id),"avx":first.x*first_speed,"avz":first.y*first_speed,"bvx":second.x*second_speed,"bvz":second.y*second_speed,"multiplier":multiplier})
+	sim.emit("clash",center,-1,float(multiplier),"ТЫДЫЩ!",{"a":int(a.id),"b":int(b.id),"avx":first.x*first_speed,"avz":first.y*first_speed,"bvx":second.x*second_speed,"bvz":second.y*second_speed,"multiplier":multiplier,"quenched":quenched})
 	return true

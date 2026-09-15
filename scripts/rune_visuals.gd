@@ -10,11 +10,10 @@ var time:=0.0
 
 func build(arena) -> void:
 	for root in arena.rune_stones:
-		var mat=arena.material(Color("302a29"));mat.emission_enabled=true;mat.emission_energy_multiplier=0.0
-		root.get_node("Rune").material_override=mat
+		var mat:ShaderMaterial=root.get_node("Rune").material_override
 		var halo_mat=arena.material(Color("55c9ff"),.9)
 		var halo=arena.ring(root,Vector3(0,-.175,0),.60,.012,halo_mat);halo.hide()
-		stones.append({"rune":mat,"halo":halo,"material":halo_mat})
+		stones.append({"root":root,"rune":mat,"halo":halo,"material":halo_mat,"pips":[root.get_node("Charge0").material_override,root.get_node("Charge1").material_override]})
 	for i in 12:
 		var root:=Node3D.new();add_child(root);root.hide()
 		var mat=arena.material(Color("ffc777"),2.1)
@@ -37,9 +36,15 @@ func step(sim,arena,dt:float)->void:
 		var charged:=Rules.charged(state)
 		var kind:String=state.get("effect","")
 		var color:=Color(Rules.EFFECTS[kind].color) if Rules.EFFECTS.has(kind) else Color("86c7df")
-		visual.rune.albedo_color=color if state.get("collector",false) else Color("302a29")
-		visual.rune.emission=color
-		visual.rune.emission_energy_multiplier=(1.4+sin(time*2.8+i)*.10) if charged else (.10+int(state.get("souls",0))*.25 if state.get("collector",false) else 0.0)
+		visual.root.position=Vector3(float(state.x),.24,float(state.z))
+		visual.root.rotation.y=-atan2(float(state.z),float(state.x))
+		visual.rune.set_shader_parameter("rune_color",color)
+		visual.rune.set_shader_parameter("rune_glow",(1.4+sin(time*2.8+i)*.10) if charged else (.08+int(state.get("souls",0))*.18 if state.get("collector",false) else 0.0))
+		for pip in 2:
+			var filled:bool=pip<int(state.get("souls",0))
+			visual.pips[pip].albedo_color=color if filled else Color("594a34")
+			visual.pips[pip].emission=color
+			visual.pips[pip].emission_energy_multiplier=.8 if filled else 0.0
 		visual.halo.visible=charged;visual.material.albedo_color=color;visual.material.emission=color
 	for i in wisps.size():
 		var wisp:Dictionary=wisps[i]
@@ -61,7 +66,7 @@ func step(sim,arena,dt:float)->void:
 			sprite.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			add_child(sprite);drops[key]=sprite
 		var t:=clampf(1-float(drop.left)/Rules.FLIGHT_TIME,0,1)
-		drops[key].position=path(Vector3(float(drop.sx),.56,float(drop.sz)),Vector3(float(drop.x),.185+sin(time*1.6+int(drop.id))*.035,float(drop.z)),t)
+		drops[key].position=path(Vector3(float(drop.sx),float(drop.get("height",.56)),float(drop.sz)),Vector3(float(drop.x),.185+sin(time*1.6+int(drop.id))*.035,float(drop.z)),t)
 		drops[key].scale=Vector3.ONE*(.45+.55*sin(t*PI*.5));drops[key].rotation=Vector3(-PI/2+sin(t*PI)*.8,t*TAU,sin(t*PI)*.15)
 	for key in drops.keys():
 		if not live.has(key):drops[key].queue_free();drops.erase(key)
