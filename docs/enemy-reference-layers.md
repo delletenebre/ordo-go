@@ -11,7 +11,7 @@ Both final RGB source images use a green matte removed in the runtime shader. Th
 | `assets/enemy-felt-body-v2.png` | `scripts/enemy_reference.gd`, felt boss body |
 | `assets/enemy-stone-body-v2.png` | `scripts/enemy_reference.gd`, brute and ram stone body |
 
-Generated with the built-in imagegen tool. The approved reference was `work/enemy-concepts/materials-v1.png`. Final source outputs: `exec-ac3656b3-4496-4f45-8e43-63e357ddff68.png` and `exec-e16c98e9-ef58-4895-8ca4-a97bed38d4b8.png` in `/Users/user/.codex/generated_images/01a09fdc-882b-7780-a07f-76e739a3c1ea/`. Copied unchanged to the asset paths above.
+Generated with the built-in imagegen tool. The approved reference was `design/references/enemy-materials-v1.png`. Final source outputs: `exec-ac3656b3-4496-4f45-8e43-63e357ddff68.png` and `exec-e16c98e9-ef58-4895-8ca4-a97bed38d4b8.png` in `/Users/user/.codex/generated_images/01a09fdc-882b-7780-a07f-76e739a3c1ea/`. Copied unchanged to the asset paths above.
 
 ## Boss body generation prompt
 

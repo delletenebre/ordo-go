@@ -2,7 +2,7 @@
 
 The user rejected the smooth coal surface and the flat brown shield. This pass replaces their visible artwork in the existing 2.5D character system. It does not change combat durability, collision geometry or damage. The face and feet remain independent. The shield remains an independent rig part with windup, recoil and inherited death momentum.
 
-Generated with the **built-in imagegen tool**, using `work/enemy-concepts/materials-v1.png` as the visual reference. The RGB green-backed source files were copied unchanged into the project; the runtime shader removes the matte. The shield's source rectangle is sampled in the shader without raster cropping or stretching its proportions.
+Generated with the **built-in imagegen tool**, using `design/references/enemy-materials-v1.png` as the visual reference. The RGB green-backed source files were copied unchanged into the project; the runtime shader removes the matte. The shield's source rectangle is sampled in the shader without raster cropping or stretching its proportions.
 
 | Asset | Consumer |
 |---|---|

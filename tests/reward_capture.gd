@@ -2,6 +2,7 @@ extends SceneTree
 const Main = preload("res://tests/support/test_main.gd")
 func _init() -> void: call_deferred("run")
 func run() -> void:
+	DirAccess.make_dir_recursive_absolute("res://work/rewards")
 	var game = Main.new();root.add_child(game);await process_frame
 	var mode := "reward"
 	for arg in OS.get_cmdline_user_args():

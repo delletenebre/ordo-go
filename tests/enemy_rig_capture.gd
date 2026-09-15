@@ -3,6 +3,7 @@ const Main=preload("res://tests/support/test_main.gd")
 var game
 func _init()->void:call_deferred("run")
 func run()->void:
+	DirAccess.make_dir_recursive_absolute("res://work/arena-reference")
 	root.content_scale_size=Vector2i(1440,900);root.content_scale_mode=Window.CONTENT_SCALE_MODE_VIEWPORT
 	game=Main.new();root.add_child(game);await process_frame
 	game.start_local(1,1);game.set_process(false);game.arena.muted=true;game.hud.hide()

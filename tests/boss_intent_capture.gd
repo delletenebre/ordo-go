@@ -3,6 +3,7 @@ const Main=preload("res://tests/support/test_main.gd")
 var game
 func _init()->void:call_deferred("run")
 func run()->void:
+	DirAccess.make_dir_recursive_absolute("res://work/enemy-motion")
 	var narrow:="--narrow" in OS.get_cmdline_user_args()
 	root.content_scale_size=Vector2i(820,1000) if narrow else Vector2i(1440,960)
 	root.content_scale_mode=Window.CONTENT_SCALE_MODE_VIEWPORT

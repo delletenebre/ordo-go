@@ -1,6 +1,6 @@
 # Enemy material assets, 2026-09-15
 
-The approved reference is `work/enemy-concepts/materials-v1.png`, supplied again by the user as `codex-clipboard-bdae7be6-d990-4339-9cd0-1b971012d244.png`. Production maps were generated using the built-in imagegen tool, copied unchanged into the project, and used on live 3D geometry. Ceramic uses this map directly on live 3D geometry. Felt now also uses a detailed illustrated body layer after the user rejected the procedural wrapping; see `enemy-reference-layers.md`.
+The approved reference is `design/references/enemy-materials-v1.png`, supplied again by the user as `codex-clipboard-bdae7be6-d990-4339-9cd0-1b971012d244.png`. Production maps were generated using the built-in imagegen tool, copied unchanged into the project, and used on live 3D geometry. Ceramic uses this map directly on live 3D geometry. Felt now also uses a detailed illustrated body layer after the user rejected the procedural wrapping; see `enemy-reference-layers.md`.
 
 | Asset | Consumer |
 |---|---|

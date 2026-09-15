@@ -25,6 +25,7 @@ func run() -> void:
 	check(visuals.patches.size()==7,"All seven spirits receive magic")
 	check(visuals.fields.size()==7,"Both pickups, all four curses and ice zone receive magic")
 	check(JSON.stringify(sim.snapshot())==state,"Magic does not mutate gameplay")
+	check(arena.element_visuals.haze.active_count()>0,"Active cold and fire produce atmospheric wisps")
 	var patch: Dictionary = visuals.patches["900"]
 	var aura = patch.aura
 	sim.restore(JSON.parse_string(state)); arena.render_state(sim,0.016,true)
@@ -42,6 +43,7 @@ func run() -> void:
 	check(not visuals.fields.has("status:0:burn"),"Expired curse releases its visual")
 	arena.reset_presentation()
 	check(visuals.fields.is_empty() and visuals.patches.is_empty(),"Reset clears every magic effect")
+	check(arena.element_visuals.haze.active_count()==0,"Reset clears lingering cold vapor and warm smoke")
 	arena.queue_free(); await process_frame
 	print("MAGIC: ",checks," checks, ",failures," failures")
 	quit(1 if failures else 0)

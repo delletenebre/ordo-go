@@ -1,6 +1,6 @@
 # Approved enemy concepts: movement and material response
 
-The user selected `work/enemy-concepts/materials-v1.png` on 2026-09-15. The four material families are compact coal, dark stone with a bronze shield, celadon ceramic, and a wound-felt boss. Preserve internally glowing eyes without pupils, a separate expressive mouth, two attached feet and a restrained silhouette.
+The user selected `design/references/enemy-materials-v1.png` on 2026-09-15. The four material families are compact coal, dark stone with a bronze shield, celadon ceramic, and a wound-felt boss. Preserve internally glowing eyes without pupils, a separate expressive mouth, two attached feet and a restrained silhouette.
 
 ## Model before implementation
 

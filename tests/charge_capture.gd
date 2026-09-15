@@ -2,6 +2,7 @@ extends SceneTree
 const Main = preload("res://tests/support/test_main.gd")
 func _init() -> void: call_deferred("run")
 func run() -> void:
+	DirAccess.make_dir_recursive_absolute("res://work/charge-shot")
 	var prefix := "charge"
 	if "--narrow" in OS.get_cmdline_user_args():
 		root.size = Vector2i(1000,760); prefix = "narrow"

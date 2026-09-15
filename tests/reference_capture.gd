@@ -53,6 +53,7 @@ func run()->void:
 		game.arena.render_state(game.sim,1.0/60.0);await process_frame
 	game.hud.set_process(false);game.hud.clock=.25;game.hud.queue_redraw()
 	await process_frame;await RenderingServer.frame_post_draw
+	DirAccess.make_dir_recursive_absolute(output.get_base_dir())
 	root.get_texture().get_image().save_png(output)
 	for i in game.sim.players.size():
 		var p:Dictionary=game.sim.players[i];var center:Vector2=game.sim.pos(p)

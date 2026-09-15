@@ -15,6 +15,7 @@ func snap(game,label:String,elapsed:float=-1.0)->void:
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png("res://work/aim-reference/"+label+".png")
 func run()->void:
+	DirAccess.make_dir_recursive_absolute("res://work/aim-reference")
 	var game=Main.new();root.add_child(game);await process_frame
 	game.start_local(4,1);game.set_process(false);game.arena.stop_audio();game.sim.start(4,1,77381)
 	game.sim.enemies.clear();game.sim.pickups.clear()

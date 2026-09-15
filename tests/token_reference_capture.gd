@@ -2,6 +2,7 @@ extends SceneTree
 const Main=preload("res://tests/support/test_main.gd")
 func _init()->void:call_deferred("run")
 func run()->void:
+	DirAccess.make_dir_recursive_absolute("res://work/token-medallions")
 	var game=Main.new();root.add_child(game);await process_frame
 	game.start_local(4,1);game.set_process(false);game.arena.stop_audio();game.hud.hide()
 	game.sim.enemies.clear();game.sim.pickups.clear()
