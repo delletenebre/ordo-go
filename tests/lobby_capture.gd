@@ -9,8 +9,15 @@ func run() -> void:
 	var modes: Array=["network","join","keyboard","roster","lobby"]
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--mode="):modes=[argument.trim_prefix("--mode=")]
+	if modes==["server-states"]:modes=["server","server-loading","server-success","server-error"]
 	for mode in modes:
-		menu.show_screen("home" if mode in ["roster","controllers"] else ("join" if mode=="keyboard" else mode))
+		menu.show_screen("home" if mode in ["roster","controllers"] else ("join" if mode=="keyboard" else ("server" if mode.begins_with("server-") else mode)))
+		if mode.begins_with("server-"):
+			var status: String=mode.trim_prefix("server-")
+			menu.set_server_checking(status in ["loading","success"]);menu.server_status.state=status
+			game.hud.message_label.text={"loading":"Проверяем сервер…","success":"Сервер доступен. Адрес сохранён.","error":"Сервер не отвечает. Проверьте адрес и подключение."}[status]
+			menu.refresh()
+			if status=="error":menu.server_save.grab_focus()
 		if mode in ["controllers","lobby"] and game.controller_hub==null:
 			game.controller_hub=preload("res://scripts/controller_hub.gd").new();game.add_child(game.controller_hub)
 			game.controller_hub.net.server_url="ws://127.0.0.1:8788";game.controller_hub.net.room="009042";game.controller_hub.status="";game.controller_hub.relay.browser_url="http://127.0.0.1:8787"

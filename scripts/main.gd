@@ -4,6 +4,7 @@ const Arena = preload("res://scripts/arena.gd")
 const Hud = preload("res://scripts/hud.gd")
 const ControllerHub = preload("res://scripts/controller_hub.gd")
 const Network = preload("res://scripts/network.gd")
+const ServerAddress = preload("res://scripts/server_address.gd")
 const Avatars = preload("res://scripts/avatar_catalog.gd")
 var sim = Simulation.new()
 var arena
@@ -18,7 +19,7 @@ var in_menu := true
 var online := false
 var local_slots: Array = [0]
 var selected := 0
-var relay_url := "ws://127.0.0.1:8787"
+var relay_url := "purrsuit.iuk.edu.kg"
 var accumulator := 0.0
 var net_clock := 0.0
 var aim_clock := 0.0
@@ -66,7 +67,7 @@ func _ready() -> void:
 		if arg.begins_with("--capture-phase="): capture_phase = arg.trim_prefix("--capture-phase=")
 		if arg.begins_with("--preview-wave="): preview_wave = int(arg.trim_prefix("--preview-wave="))
 		if arg.begins_with("--capture="): capture_path = arg.trim_prefix("--capture=")
-		if arg.begins_with("--relay="): relay_url = arg.trim_prefix("--relay="); hud.url_field.text = relay_url
+		if arg.begins_with("--relay="): relay_url = ServerAddress.normalize(arg.trim_prefix("--relay=")); hud.url_field.text = relay_url
 	if demo: start_local(4, 1)
 	if preview_wave > 0:
 		sim.wave = clampi(preview_wave, 1, 9) - 1; sim.next_wave()
@@ -76,13 +77,14 @@ func _ready() -> void:
 func load_settings() -> void:
 	var config := ConfigFile.new()
 	if config.load("user://settings.cfg") == OK:
-		relay_url = config.get_value("network", "relay_url", relay_url)
+		relay_url = ServerAddress.normalize(str(config.get_value("network", "relay_url", relay_url)))
 		var saved = config.get_value("players","avatars",local_avatars)
 		if saved is Array and saved.size()==4:
 			for i in 4:
 				if Avatars.IDS.has(saved[i]): local_avatars[i]=saved[i]
 
 func save_settings() -> void:
+	relay_url = ServerAddress.normalize(relay_url)
 	var config := ConfigFile.new(); config.set_value("network", "relay_url", relay_url)
 	config.set_value("players","avatars",local_avatars); config.save("user://settings.cfg")
 
@@ -159,10 +161,21 @@ func send_command(slot: int, data: Dictionary) -> void:
 		data.power = data.get("power", player.power)
 		data.spin = data.get("spin", player.get("spin", 0.0))
 	command_count += 1
+	if data.action == "reward_focus":
+		apply_reward_focus(slot, data)
+		if online and not net.is_host: net.send({"type":"command", "slot":slot, "data":data})
+		return
 	if online and not net.is_host:
 		if data.action == "aim": sim.command(slot, data)
 		net.send({"type": "command", "slot": slot, "data": data})
 	else: sim.command(slot, data)
+
+func apply_reward_focus(slot: int, data: Dictionary) -> void:
+	if sim.phase != "reward" or int(data.get("turn", -1)) != sim.turn or slot < 0 or slot >= sim.players.size(): return
+	var choice := int(data.get("choice", -1))
+	if choice < 0 or choice >= sim.reward_options.size(): return
+	reward_choices[slot] = choice
+	selected = slot
 
 func charge_valid(charge: Dictionary) -> bool:
 	var slot: int = charge.slot
@@ -276,10 +289,10 @@ func active_local_seats() -> Array:
 func on_controller_roster() -> void:
 	if not local_server_address_applied and controller_hub.net.room != "":
 		local_server_address_applied = true
-		var configured: Dictionary = hud.game_menu.PhoneConnection.describe(relay_url, PackedStringArray())
+		var configured: Dictionary = hud.game_menu.PhoneConnection.describe("ws://" + ServerAddress.normalize(relay_url), PackedStringArray())
 		if configured.local:
 			# The app owns the local server and knows its actual (possibly fallback) port.
-			relay_url = controller_hub.net.server_url; hud.url_field.text = relay_url
+			relay_url = ServerAddress.normalize(controller_hub.net.server_url); hud.url_field.text = relay_url
 	var phones: Array = controller_hub.net.roster.filter(func(player): return str(player.owner) != controller_hub.net.peer_id)
 	var connected_slots: Array = phones.map(func(player): return int(player.slot))
 	for slot in phone_slots.keys():
@@ -407,7 +420,7 @@ func menu_input(event: InputEvent) -> bool:
 			keyboard_seat = true;sync_lobby_seats()
 		var focus = get_viewport().gui_get_focus_owner()
 		if hud.game_menu.keyboard_event(event): return true
-		if focus == hud.game_menu.keyboard_input and event.keycode in [KEY_UP,KEY_DOWN]:
+		if focus in [hud.game_menu.keyboard_input, hud.url_field] and event.keycode in [KEY_UP,KEY_DOWN]:
 			hud.game_menu.navigate(Vector2.UP if event.keycode==KEY_UP else Vector2.DOWN); return true
 		if focus is LineEdit and focus != hud.code_field and event.keycode not in [KEY_ESCAPE,KEY_BACK]: return false
 		match event.keycode:
@@ -543,7 +556,9 @@ func on_network(data: Dictionary) -> void:
 		"start":
 			online = true; start_game(int(data.count), int(data.difficulty))
 		"command":
-			if online and net.is_host: sim.command(int(data.slot), data.data)
+			if online and net.is_host:
+				if data.data.get("action") == "reward_focus": apply_reward_focus(int(data.slot), data.data)
+				else: sim.command(int(data.slot), data.data)
 		"snapshot":
 			if online and not net.is_host: sim.restore(data.state)
 		"ended":

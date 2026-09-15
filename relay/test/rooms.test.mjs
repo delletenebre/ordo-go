@@ -31,6 +31,12 @@ test('room ownership, two TV snapshots, stale slots, capacity, disconnect', asyn
     assert.match((await tv.wait('error')).message, /другому/);
     tv.send({ type: 'command', slot: 1, data: { action: 'aim', turn: 1, angle: 1.2, power: 8 } });
     const command = await host.wait('command'); assert.equal(command.data.power, 1); assert.equal(command.slot, 1);
+    phone.send({type:'command',slot:3,data:{action:'reward_focus',turn:1,choice:2}});
+    assert.deepEqual((await host.wait('command')).data,{action:'reward_focus',turn:1,choice:2});
+    phone.send({type:'command',slot:3,data:{action:'reward_focus',turn:1,choice:99}});
+    phone.send({type:'command',slot:3,data:{action:'reward_focus',turn:1,choice:1}});
+    assert.equal((await host.wait('command')).data.choice,1,'Invalid focus never reaches the host');
+
     tv.send({ type: 'command', slot: 1, data: { action: 'aim', turn: 1, angle: 1.2, power: .575, spin: -8 } });
     assert.equal((await host.wait('command')).data.spin, -1);
     tv.send({ type: 'command', slot: 1, data: { action: 'aim', turn: 1, angle: 1.2, power: .575, spin: 'invalid' } });

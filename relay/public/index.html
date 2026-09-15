@@ -1,11 +1,124 @@
 <!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><meta name="theme-color" content="#15212d"><title>ORDO · Контроллер</title>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#101b27">
+<title>ORDO · Контроллер</title>
 <style>
-*{box-sizing:border-box}body{margin:0;background:#101b27;color:#f8e8cc;font:16px system-ui,sans-serif;min-height:100dvh;padding:22px;touch-action:manipulation;background-image:repeating-linear-gradient(35deg,#ffffff02 0px,#ffffff02 1px,transparent 1px,transparent 4px)}main{max-width:480px;margin:auto}h1{font-family:Georgia,serif;letter-spacing:8px;font-size:42px;margin:10px 0 2px}small{color:#d6b47d;letter-spacing:2px}p{color:#aebac6;line-height:1.5}input,button{font:inherit;border:2px solid #776952;border-radius:16px;padding:16px;color:inherit;background:#243444;width:100%;margin:8px 0}input{text-transform:uppercase;letter-spacing:5px;font-size:26px;text-align:center}button:active{transform:translateY(2px)}button:disabled{opacity:.4}.primary{background:#397657;border-color:#91ba8a;font-weight:700}#arena{width:100%;aspect-ratio:1;background:#14202c;border-radius:50%;border:2px dashed #a68c66;margin-top:18px;touch-action:none}#pad{display:none}.row{display:flex;gap:12px}.row button{width:50%}#status{min-height:48px;color:#f3ce8a}#health{letter-spacing:5px;color:#65cfff}#choices button{font-size:15px;text-align:left}footer{font-size:12px;color:#81919e;margin-top:18px}#power{accent-color:#60cfff;width:100%;padding:0}label{font-size:13px;color:#b2bdc8}.chip{display:inline-block;padding:6px 14px;border:1px solid #76634d;border-radius:99px;margin-top:12px;color:#e9b865}
-#avatars{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.avatar{padding:5px 2px;margin:0;border:2px solid transparent;background:transparent;border-radius:16px;min-width:0;font-size:11px}.avatar img{display:block;width:100%;aspect-ratio:1;object-fit:contain}.avatar.selected{border-color:#e9b865;background:#e9b86512}.avatar:focus-visible{outline:3px solid #e9b865}#pad.waiting #arena,#pad.waiting #health,#pad.waiting #power,#pad.waiting label,#pad.waiting .row,#pad.waiting #hint{display:none}
-</style><link rel="stylesheet" href="/reward.css"></head><body><main><small>ХРАНИТЕЛИ ОЧАГА</small><h1>ORDO</h1>
-<section id="join"><h2>Телефон-контроллер</h2><p>Выберите аватар и введите код контроллера с вашего ТВ. Можно подключиться заранее — до начала игры.</p><label id="code-label" for="code">КОД КОМНАТЫ · 6 ЦИФР</label><input id="code" maxlength="6" placeholder="482731" aria-label="Код комнаты" autocomplete="off" inputmode="numeric" pattern="[0-9]{6}" spellcheck="false"><button class="primary" id="connect">ПРИСОЕДИНИТЬСЯ</button></section>
+*{box-sizing:border-box}
+body{margin:0;background:#101b27;color:#f8e8cc;font:16px system-ui,sans-serif;touch-action:manipulation}
+main{max-width:780px;min-height:100dvh;margin:auto;padding:max(18px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right)) max(18px,env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left));display:flex;flex-direction:column}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+h1{font:700 25px Georgia,serif;letter-spacing:5px;margin:0}
+.chip{color:#ffc65c;font-size:14px}
+p{color:#aebac6;line-height:1.5}
+input,button{font:inherit;color:inherit;border:1px solid #59616a;background:#26333f}
+input{width:100%;border-radius:14px;padding:16px;margin:10px 0;text-align:center;font-size:26px;letter-spacing:5px}
+button{cursor:pointer;-webkit-tap-highlight-color:transparent}
+button:focus-visible{outline:3px solid #fff0bf;outline-offset:4px}
+#connect{width:100%;padding:16px;border-radius:14px;background:#397657;font-weight:700}
+#join{max-width:420px;margin:40px auto 0}
+#status{color:#c9bba4;font-size:14px;min-height:40px;padding-top:12px}
+#pad{display:none;flex:1;flex-direction:column;justify-content:center}
+button:disabled{opacity:.3;cursor:default}
+.gamepad{touch-action:none;user-select:none;-webkit-user-select:none}
+.shoulders{display:flex;justify-content:space-between;gap:24px;margin-bottom:30px}
+.shoulder{width:130px;height:58px;border-radius:22px 22px 14px 14px;font-size:22px;font-weight:750;box-shadow:0 5px 0 #080e15}
+.controls{display:flex;align-items:center;justify-content:space-between;gap:14px}
+.dpad{display:grid;grid-template-columns:repeat(3,54px);grid-template-rows:repeat(3,54px);gap:3px}
+.direction{border-radius:13px;font-size:26px;box-shadow:0 4px 0 #080e15}
+#up{grid-column:2;grid-row:1}
+#left{grid-column:1;grid-row:2}
+#right{grid-column:3;grid-row:2}
+#down{grid-column:2;grid-row:3}
+.dpad-center{grid-column:2;grid-row:2;display:grid;place-items:center;color:#61707b;font-size:22px}
+.actions{display:grid;grid-template-columns:repeat(2,62px);grid-template-rows:repeat(2,68px);gap:10px}
+.action{width:62px;height:62px;border-radius:50%;font-size:25px;font-weight:800;box-shadow:0 5px 0 #080e15}
+#a{grid-column:2;grid-row:2;background:#397657;border-color:#8bb48a}
+#b{grid-column:1;grid-row:2;background:#774449;border-color:#b67d79}
+#x{grid-column:2;grid-row:1;width:48px;height:48px;align-self:center;justify-self:center;font-size:18px;background:#2e536b;border-color:#668fa7}
+.gamepad button.pressed{transform:translateY(4px);box-shadow:0 1px 0 #080e15;filter:brightness(1.4)}
+.gamepad button[aria-pressed=true]{border-color:#ffe4a0}
+#hint{white-space:pre-line;font-size:13px;text-align:center;min-height:40px;margin:30px 0 0;line-height:1.7;color:#9aa9b5}
+footer{font-size:12px;text-align:center;color:#71828f;padding-top:18px}
+body.connected #identity{display:block}
+#identity{display:none}
+
+@media(min-width:600px){.dpad{grid-template-columns:repeat(3,66px);grid-template-rows:repeat(3,60px)}
+.actions{grid-template-columns:repeat(2,76px);grid-template-rows:repeat(2,76px)}
+.action{width:72px;height:72px}
+.shoulder{width:160px}
+}
+
+@media(max-height:500px){main{padding-top:10px;padding-bottom:10px}
+#status{min-height:30px;padding-top:5px}
+.shoulders{margin-bottom:10px}
+.shoulder{height:44px}
+.dpad{grid-template-rows:repeat(3,44px)}
+.actions{grid-template-rows:repeat(2,58px)}
+.action{width:56px;height:56px}
+#hint{margin-top:12px;min-height:22px}
+footer{display:none}
+}
+
+@media(max-width:380px){main{padding-left:12px;padding-right:12px}
+.dpad{grid-template-columns:repeat(3,48px);grid-template-rows:repeat(3,50px)}
+.actions{grid-template-columns:repeat(2,56px);gap:6px}
+.action{width:56px;height:56px}
+}
+
+
+.mode-switch{display:flex;align-self:center;padding:4px;background:#0b141e;border:1px solid #354453;border-radius:99px;margin:0 0 24px;gap:4px}
+.mode-switch button{border:0;background:transparent;color:#8e9ca9;min-width:105px;min-height:44px;border-radius:99px;font-size:14px}
+.mode-switch button[aria-pressed=true]{background:#344758;color:#fff0d6}
+.direction-shell{width:180px;height:180px;display:grid;place-items:center;flex-shrink:0}
+.stick{width:180px;height:180px;border-radius:50%;padding:0;position:relative;background:radial-gradient(circle,#243746 0 35%,#192936 36% 65%,#2e4251 66% 67%,#192936 68%);border:2px solid #415666;box-shadow:inset 0 5px 12px #060c1377;touch-action:none}
+.stick:before,.stick:after{content:'';position:absolute;background:#7890a333;pointer-events:none}
+.stick:before{width:1px;top:10px;bottom:10px;left:50%}
+.stick:after{height:1px;left:10px;right:10px;top:50%}
+.stick-knob{position:absolute;left:calc(50% - 34px);top:calc(50% - 34px);width:68px;height:68px;border-radius:50%;border:2px solid #90a6b5;background:radial-gradient(circle at 40% 30%,#617b8d,#354c5d);box-shadow:0 6px 14px #050c1499;z-index:1;pointer-events:none}
+.stick.active .stick-knob{border-color:#ffe0a0}
+.stick:disabled{opacity:.3}
+.direction-shell [hidden]{display:none}
+.actions{grid-template-columns:repeat(2,68px)}
+.action{width:68px;height:68px}
+
+@media(min-width:600px){.direction-shell,.stick{width:208px;height:208px}
+.actions{grid-template-columns:repeat(2,82px)}
+.action{width:78px;height:78px}
+}
+
+@media(max-height:500px){#pad{justify-content:flex-start}
+.mode-switch{position:absolute;top:12px;left:50%;transform:translateX(-50%);margin:0}
+.mode-switch button{min-height:36px;min-width:85px}
+.direction-shell,.stick{width:158px;height:158px}
+.shoulders{margin-top:8px}
+.actions{grid-template-rows:repeat(2,68px)}
+.action{width:64px;height:64px}
+}
+
+@media(max-width:380px){.direction-shell,.stick{width:154px;height:154px}
+.actions{grid-template-columns:repeat(2,60px)}
+.action{width:60px;height:60px}
+}
+
+</style>
+</head>
+<body><main>
+<header><h1>ORDO</h1><div class="chip" id="identity"></div></header>
+<section id="join"><h2>Телефон-контроллер</h2><p>Введите код комнаты с вашего ТВ. Можно подключиться до начала игры.</p><label id="code-label" for="code">КОД КОМНАТЫ · 6 ЦИФР</label><input id="code" maxlength="6" placeholder="482731" aria-label="Код комнаты" autocomplete="off" inputmode="numeric" pattern="[0-9]{6}" spellcheck="false"><button id="connect">ПРИСОЕДИНИТЬСЯ</button></section>
 <div id="status" role="status" aria-live="polite"></div>
-<section id="avatar-picker"><h2>Ваш аватар</h2><div id="avatars"></div></section>
-<section id="pad"><div class="chip" id="identity"></div><button id="change-avatar">СМЕНИТЬ АВАТАР</button><div id="health"></div><canvas id="arena" width="640" height="640" aria-label="Арена и прицел"></canvas><p id="hint">Проведите от своей фишки в сторону броска.</p><label>СИЛА БРОСКА<input id="power" type="range" min="15" max="100" value="65" aria-label="Сила броска"></label><div class="row"><button id="ability">✦ СПОСОБНОСТЬ</button><button id="ready" class="primary">✓ ГОТОВ</button></div><section id="reward-panel"><h2>Вплетите новую нить</h2><p id="reward-status" role="status"></p><div id="choices"></div><p id="reward-party"></p><button id="cancel-reward" hidden>Отменить готовность</button></section></section>
-<footer>Телефон управляет вашей фишкой. Общую сцену смотрите на телевизоре.</footer><script src="/connection-config.js"></script><script type="module" src="/controller.js"></script></main></body></html>
+<section id="pad">
+<div class="mode-switch" role="group" aria-label="Тип управления"><button id="mode-stick" aria-pressed="true">Стик</button><button id="mode-arrows" aria-pressed="false">Стрелки</button></div>
+<div class="gamepad" role="group" aria-label="Виртуальный геймпад">
+<div class="shoulders"><button class="shoulder" id="l1" aria-label="L1 · Подкрутка влево">L1</button><button class="shoulder" id="r1" aria-label="R1 · Подкрутка вправо">R1</button></div>
+<div class="controls">
+<div class="direction-shell"><button class="stick" id="stick" aria-label="Стик направления"><span class="stick-knob" id="stick-knob"></span></button><div id="dpad" hidden class="dpad" role="group" aria-label="Направление"><button class="direction" id="up" aria-label="Вверх">↑</button><button class="direction" id="left" aria-label="Влево">←</button><span class="dpad-center" aria-hidden="true">✥</span><button class="direction" id="right" aria-label="Вправо">→</button><button class="direction" id="down" aria-label="Вниз">↓</button></div>
+</div><div class="actions"><button class="action" id="x" aria-label="X · Умение">X</button><button class="action" id="b" aria-label="B · Отмена">B</button><button class="action" id="a" aria-label="A · Удерживать для броска">A</button></div>
+</div></div>
+<p id="hint">Смотрите на ТВ</p>
+</section>
+<footer>Смотрите на ТВ · управляйте здесь</footer>
+<script src="/connection-config.js"></script><script type="module" src="/controller.js"></script>
+</main></body></html>

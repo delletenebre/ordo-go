@@ -85,7 +85,7 @@ func connect_room(create: bool) -> void:
 	if game_menu.busy:return
 	if not create and not game_menu.RoomCode.valid(code_field.text):
 		message_label.text = "Введите шесть цифр: 482731."; return
-	game.relay_url = url_field.text.strip_edges(); game.save_settings()
+	if not game_menu.store_server_address(): return
 	game_menu.busy=true;game_menu.refresh()
 	message_label.text = "Соединяемся…"
 	game.net.connect_room(game.relay_url, code_field.text, game.active_local_seats().size(), create,game.active_avatars())

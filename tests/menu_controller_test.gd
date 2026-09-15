@@ -126,6 +126,11 @@ func run() -> void:
 	var commands_before: int=game.command_count
 	key(KEY_TAB);key(KEY_Q);key(KEY_SPACE);key(KEY_Z)
 	check(game.sim.players.size()==2 and game.keyboard_slot()==-1 and game.command_count==commands_before,"Spectator keyboard cannot add or control players mid-run")
+	menu.show_screen("server")
+	game.hud.url_field.text=" wss://Play.Example.org/ "
+	check(menu.store_server_address() and game.relay_url=="play.example.org" and game.hud.url_field.text=="play.example.org","Server field saves only the domain")
+	game.hud.url_field.text="host/path"
+	check(not menu.store_server_address() and game.relay_url=="play.example.org","Invalid server input cannot replace saved domain")
 	print("MENU CONTROLLERS: failures=",failures)
 	game.set_process(false);game.arena.stop_audio();await create_timer(.2).timeout
 	game.queue_free();await process_frame;quit(1 if failures else 0)

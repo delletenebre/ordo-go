@@ -27,11 +27,11 @@ function playerAvatars(message, count, previous = []) {
 export function createRelay({ maxRooms = 250 } = {}) {
   const rooms = new Map();
   const http = createServer(async (req, res) => {
-    if (req.url === '/health') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
+    const pathname = new URL(req.url, 'http://localhost').pathname;
+    if (pathname === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       return res.end(JSON.stringify({ ok: true, rooms: rooms.size }));
     }
-    const pathname = new URL(req.url, 'http://localhost').pathname;
     const files = { '/': 'index.html', '/controller.js': 'controller.js', '/connection-config.js': 'connection-config.js', '/room-code.js': 'room-code.js', '/avatars.js': 'avatars.js' };
     for (const key of Object.keys(AVATARS)) files[`/avatars/${key}.png`] = `../../assets/avatars/${key}.png`;
     for (const key of ['stitch','spark','stride','charge','guard','mend']) files[`/boons/${key}.png`] = `../../assets/boons/${key}.png`;
@@ -156,7 +156,7 @@ export function createRelay({ maxRooms = 250 } = {}) {
       } else if (msg.type === 'command') {
         if ((!room.started && !(room.controllerHub && room.controllersPlaying)) || !peer.slots.includes(msg.slot)) return error(peer, 'Эта фишка принадлежит другому игроку.');
         const data = msg.data;
-        if (!data || !Number.isInteger(data.turn) || !['aim', 'ready', 'cancel', 'ability', 'reward'].includes(data.action)) return;
+        if (!data || !Number.isInteger(data.turn) || !['aim', 'ready', 'cancel', 'ability', 'reward', 'reward_focus'].includes(data.action)) return;
         const safe = { action: data.action, turn: data.turn };
         if (data.action === 'aim') {
           if (!Number.isFinite(data.angle) || !Number.isFinite(data.power)) return;
@@ -164,7 +164,7 @@ export function createRelay({ maxRooms = 250 } = {}) {
           safe.angle = data.angle; safe.power = Math.max(0.15, Math.min(1, data.power));
           if (data.spin !== undefined) safe.spin = Math.max(-1, Math.min(1, data.spin));
         }
-        if (data.action === 'reward') {
+        if (data.action === 'reward' || data.action === 'reward_focus') {
           if (!Number.isInteger(data.choice) || data.choice < 0 || data.choice > 2) return;
           safe.choice = data.choice;
         }

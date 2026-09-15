@@ -143,14 +143,14 @@ func receive(id: int, data: Dictionary) -> void:
 			var command = data.get("data")
 			if not command is Dictionary or not integer(command.get("turn")): return
 			var action = command.get("action","")
-			if action not in ["aim","ready","cancel","ability","reward"]: return
+			if action not in ["aim","ready","cancel","ability","reward","reward_focus"]: return
 			var safe := {"action":action,"turn":int(command.turn)}
 			if action=="aim":
 				if not number(command.get("angle")) or not number(command.get("power")): return
 				if command.has("spin") and not number(command.spin): return
 				safe.angle=command.angle;safe.power=clampf(float(command.power),.15,1.0)
 				if command.has("spin"): safe.spin=clampf(float(command.spin),-1.0,1.0)
-			if action=="reward":
+			if action in ["reward","reward_focus"]:
 				if not integer(command.get("choice")) or command.choice<0 or command.choice>2:return
 				safe.choice=int(command.choice)
 			send(room.host,{"type":"command","slot":int(data.slot),"data":safe})

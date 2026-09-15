@@ -27,6 +27,13 @@ var match_address: Label
 var phone_address: Label
 var phone_hint: Label
 var phone_panel: VBoxContainer
+var server_keys: Array[Button] = []
+var server_save: Button
+var server_status: Control
+var server_probe: Node
+var server_checking := false
+var server_attempt := 0
+var server_candidate := ""
 
 func make_button(label: String, parent: Node, callback: Callable) -> Button:
 	var b := EmberButton.new(); b.text=label; parent.add_child(b)
@@ -86,9 +93,25 @@ func build(owner) -> void:
 	match_address=hud.label_node("",lobby,20,hud.gold);match_address.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 	hud.start_button=action("lobby","НАЧАТЬ ОБЩИЙ МАТЧ",func(): hud.game.play_connected())
 	action("lobby","ПОКИНУТЬ КОМНАТУ",func(): hud.game.net.disconnect_room();busy=false;show_screen("network"))
-	var server=page("server","СЕРВЕР","Все ТВ и телефоны должны подключаться к одному серверу. Для игры из разных квартир нужен его публичный адрес.")
-	hud.url_field=LineEdit.new();hud.url_field.text=hud.game.relay_url;hud.url_field.custom_minimum_size.y=56;server.add_child(hud.url_field);page_controls.server.append(hud.url_field)
-	action("server","СОХРАНИТЬ",func(): hud.game.relay_url=hud.url_field.text.strip_edges();hud.game.save_settings();show_screen(server_return));add_back("server")
+	var server=page("server","СЕРВЕР","Введите адрес сервера. Все ТВ общей игры должны использовать один сервер.")
+	hud.url_field=LineEdit.new();hud.url_field.text=hud.game.relay_url;hud.url_field.custom_minimum_size.y=52
+	hud.url_field.max_length=253;hud.url_field.virtual_keyboard_enabled=false
+	server.add_child(hud.url_field);page_controls.server.append(hud.url_field)
+	hud.url_field.placeholder_text="Домен или IP-адрес"
+	hud.url_field.text_changed.connect(func(_value: String): reset_server_status())
+	hud.url_field.text_submitted.connect(func(_value: String): save_server())
+	build_server_keyboard(server)
+	var server_actions:=HBoxContainer.new();server_actions.add_theme_constant_override("separation",16);server.add_child(server_actions)
+	server_save=make_button("СОХРАНИТЬ",server_actions,save_server)
+	server_save.size_flags_horizontal=Control.SIZE_EXPAND_FILL;server_save.custom_minimum_size.y=76
+	server_status=preload("res://scripts/server_status.gd").new();server_save.add_child(server_status)
+	server_status.set_anchors_and_offsets_preset(Control.PRESET_CENTER_RIGHT)
+	server_status.offset_left=-48;server_status.offset_right=-8;server_status.offset_top=-20;server_status.offset_bottom=20
+	back_buttons.server=make_button("НАЗАД",server_actions,back)
+	back_buttons.server.size_flags_horizontal=Control.SIZE_EXPAND_FILL;back_buttons.server.custom_minimum_size.y=76
+	page_controls.server.append_array([server_save,back_buttons.server])
+	server_probe=preload("res://scripts/server_probe.gd").new();hud.add_child(server_probe)
+	server_probe.completed.connect(server_checked)
 	phone_panel=VBoxContainer.new();hud.menu.add_child(phone_panel)
 	phone_panel.position=Vector2(0,394);phone_panel.custom_minimum_size.x=510
 	phone_panel.add_theme_constant_override("separation",12)
@@ -100,7 +123,14 @@ func build(owner) -> void:
 	hud.message_label.hide();show_screen("home")
 
 func show_screen(id: String, clear_message: bool = true) -> void:
+	if screen=="server":
+		cancel_server_check()
+		hud.url_field.text=hud.game.relay_url
 	screen=id;code_editing=id=="join"
+	if id=="server":
+		hud.url_field.text=hud.game.relay_url
+		hud.url_field.caret_column=hud.url_field.text.length()
+		reset_server_status()
 	for key in pages: pages[key].visible=key==id
 	network_window.visible=id!="home"
 	update_phone_connection()
@@ -116,6 +146,85 @@ func show_screen(id: String, clear_message: bool = true) -> void:
 	var controls=visible_controls()
 	if not controls.is_empty(): controls[0].grab_focus()
 	if id=="join":focus_code_key()
+	if id=="server":server_keys[0].grab_focus()
+
+func build_server_keyboard(parent: VBoxContainer) -> void:
+	var keyboard:=VBoxContainer.new();keyboard.add_theme_constant_override("separation",6);parent.add_child(keyboard)
+	for letters in ["1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm", ".:/-_[]"]:
+		var row:=HBoxContainer.new();row.add_theme_constant_override("separation",6);keyboard.add_child(row)
+		for character in letters:
+			var key=make_button(character,row,func():type_server(character))
+			key.custom_minimum_size=Vector2(0,44);key.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+			server_keys.append(key);page_controls.server.append(key)
+	var edits:=HBoxContainer.new();edits.add_theme_constant_override("separation",8);keyboard.add_child(edits)
+	for entry in [["←",func():move_server_caret(-1)],["→",func():move_server_caret(1)],["УДАЛИТЬ",erase_server],["ОЧИСТИТЬ",func():hud.url_field.clear();reset_server_status()]]:
+		var key=make_button(entry[0],edits,entry[1]);key.custom_minimum_size=Vector2(0,44)
+		key.size_flags_horizontal=Control.SIZE_EXPAND_FILL;server_keys.append(key);page_controls.server.append(key)
+
+func type_server(character: String) -> void:
+	if server_checking:return
+	if hud.url_field.has_selection():
+		var start: int=hud.url_field.get_selection_from_column()
+		hud.url_field.delete_text(start,hud.url_field.get_selection_to_column())
+		hud.url_field.deselect();hud.url_field.caret_column=start
+	hud.url_field.insert_text_at_caret(character.to_lower());reset_server_status()
+
+func erase_server() -> void:
+	if server_checking:return
+	if hud.url_field.has_selection():
+		var start: int=hud.url_field.get_selection_from_column()
+		hud.url_field.delete_text(start,hud.url_field.get_selection_to_column())
+		hud.url_field.deselect();hud.url_field.caret_column=start
+	elif hud.url_field.caret_column>0:hud.url_field.delete_char_at_caret()
+	reset_server_status()
+
+func move_server_caret(step: int) -> void:
+	hud.url_field.deselect()
+	hud.url_field.caret_column=clampi(hud.url_field.caret_column+step,0,hud.url_field.text.length())
+
+func reset_server_status() -> void:
+	if server_status:server_status.state="idle"
+	if hud.message_label:hud.message_label.text="";refresh()
+
+func set_server_checking(value: bool) -> void:
+	server_checking=value;server_save.disabled=value;hud.url_field.editable=not value
+	for key in server_keys:key.disabled=value
+
+func cancel_server_check() -> void:
+	server_attempt+=1
+	if server_probe:server_probe.cancel()
+	set_server_checking(false)
+
+func save_server() -> void:
+	if server_checking:return
+	server_candidate=hud.game.ServerAddress.normalize(hud.url_field.text)
+	if not hud.game.ServerAddress.valid(server_candidate):
+		server_status.state="error"
+		hud.message_label.text="Введите домен или IP-адрес, при необходимости — с портом.";refresh();return
+	server_attempt+=1;set_server_checking(true)
+	server_status.state="loading";hud.message_label.text="Проверяем сервер…";refresh()
+	server_probe.start(server_candidate)
+
+func server_checked(ok: bool, reason: String) -> void:
+	if screen!="server" or not server_checking:return
+	if not ok:
+		set_server_checking(false);server_status.state="error"
+		hud.message_label.text=reason;refresh();server_save.grab_focus();return
+	hud.url_field.text=server_candidate
+	hud.game.relay_url=server_candidate;hud.game.save_settings()
+	server_status.state="success";hud.message_label.text="Сервер доступен. Адрес сохранён.";refresh()
+	var attempt:=server_attempt
+	await hud.get_tree().create_timer(.75).timeout
+	if is_instance_valid(hud) and screen=="server" and attempt==server_attempt:show_screen(server_return)
+
+func store_server_address() -> bool:
+	var address: String = hud.game.ServerAddress.normalize(hud.url_field.text)
+	hud.url_field.text = address
+	if not hud.game.ServerAddress.valid(address):
+		hud.message_label.text="Введите домен или IP-адрес. При необходимости добавьте порт: сервер:8788."
+		refresh();return false
+	hud.game.relay_url=address;hud.game.save_settings()
+	return true
 
 func show_network(show: bool) -> void:
 	show_screen(("lobby" if hud.game.net.room!="" else "network") if show else "home")
@@ -143,7 +252,7 @@ func update_phone_connection() -> void:
 	if phone_address == null: return
 	var shared: Dictionary = PhoneConnection.describe(hud.game.net.server_url, IP.get_local_addresses())
 	match_address.visible=not shared.urls.is_empty()
-	match_address.text="ДРУГОЙ ТВ · " + str(shared.urls[0]).replace("https://","wss://").replace("http://","ws://") if not shared.urls.is_empty() else ""
+	match_address.text="ДРУГОЙ ТВ · " + hud.game.ServerAddress.normalize(str(shared.urls[0])) if not shared.urls.is_empty() else ""
 	var hub = hud.game.controller_hub
 	var source = hub.net if hub != null else hud.game.net
 	var endpoint: String = hub.relay.browser_url if hub != null and hub.relay.browser_url != "" else source.server_url
@@ -203,6 +312,7 @@ func navigate(direction: Vector2) -> void:
 func accept() -> void:
 	var focus=hud.get_viewport().gui_get_focus_owner()
 	if roster_buttons.has(focus): cycle_avatar(1)
+	elif screen=="server" and focus==hud.url_field:server_keys[0].grab_focus()
 	elif focus==keyboard_input:focus_code_key()
 	elif focus is BaseButton and not focus.disabled:focus.pressed.emit()
 
@@ -259,6 +369,13 @@ func erase_code() -> void:
 	sync_code()
 
 func keyboard_event(event: InputEventKey) -> bool:
+	if screen=="server":
+		if server_checking:return event.keycode not in [KEY_ESCAPE,KEY_BACK]
+		if hud.url_field.has_focus():return false
+		if event.keycode==KEY_BACKSPACE:erase_server();return true
+		if event.unicode>=33 and not event.ctrl_pressed and not event.meta_pressed:
+			type_server(String.chr(event.unicode));return true
+		return false
 	if not code_editing or keyboard_input.has_focus():return false
 	if event.keycode==KEY_BACKSPACE:erase_code();return true
 	if event.unicode>=32 and not event.ctrl_pressed and not event.meta_pressed:
