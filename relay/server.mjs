@@ -53,16 +53,23 @@ export function createRelay({ maxRooms = 250 } = {}) {
   const roster = room => ({ type: 'roster', code: room.code, started: room.started,
     players: [...room.peers.values()].flatMap(p => p.slots.map((slot, index) => ({ slot, avatar: p.avatars[index], name: AVATARS[p.avatars[index]], owner: p.id, host: p === room.host }))) });
   const error = (peer, text) => send(peer, { type: 'error', message: text });
+  const backToLobby = room => {
+    room.started = false;
+    room.snapshot = null;
+    broadcast(room, { type: 'lobby' });
+    broadcast(room, roster(room));
+  };
   const clean = peer => {
     const room = rooms.get(peer.room);
     if (!room) return;
-    if (peer === room.host || room.started) {
-      broadcast(room, { type: 'ended', message: peer === room.host ? 'Ведущий отключился. Создайте новую комнату.' : 'Игрок отключился. Матч остановлен; соберите комнату заново.' }, peer);
+    if (peer === room.host) {
+      broadcast(room, { type: 'ended', message: 'Ведущий завершил комнату.' }, peer);
       for (const p of room.peers.values()) p.room = null;
       rooms.delete(room.code);
     } else {
       room.peers.delete(peer.id);
-      broadcast(room, roster(room));
+      if (room.started) backToLobby(room);
+      else broadcast(room, roster(room));
     }
     peer.room = null;
   };
@@ -137,6 +144,9 @@ export function createRelay({ maxRooms = 250 } = {}) {
           broadcast(room, { type: 'controller_wait' }, peer);
           broadcast(room, roster(room));
         }
+      } else if (msg.type === 'lobby') {
+        if (peer !== room.host || room.controllerHub) return error(peer, 'Вернуть комнату в ожидание может только ведущий.');
+        if (room.started) backToLobby(room);
       } else if (msg.type === 'start') {
         if (room.host !== peer || room.started) return error(peer, 'Начать может только ведущий.');
         if (![...room.peers.values()].some(p => p.slots.length)) return error(peer, 'Сначала подключите хотя бы одного игрока.');
@@ -161,6 +171,8 @@ export function createRelay({ maxRooms = 250 } = {}) {
         if (data.action === 'aim') {
           if (!Number.isFinite(data.angle) || !Number.isFinite(data.power)) return;
           if (data.spin !== undefined && !Number.isFinite(data.spin)) return;
+          if (data.charging !== undefined && typeof data.charging !== 'boolean') return;
+          if (data.charging !== undefined) safe.charging = data.charging;
           safe.angle = data.angle; safe.power = Math.max(0.15, Math.min(1, data.power));
           if (data.spin !== undefined) safe.spin = Math.max(-1, Math.min(1, data.spin));
         }

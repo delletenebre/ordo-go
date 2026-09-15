@@ -70,7 +70,7 @@ func start(count: int, mode: int = 1, seed_value: int = -1) -> void:
 	for i in clampi(count, 1, 4):
 		var point := edge_position(0.43, rotation + i * spacing, spacing * 0.2)
 		var a := point.angle()
-		players.append({"id": i, "x": point.x, "z": point.y, "vx": 0.0, "vz": 0.0, "r": 0.43, "mass": 1.2, "hp": 4, "max_hp": 4, "angle": a + PI, "power": 0.15, "spin": 0.0, "flight_spin": 0.0, "ready": false, "ability": false, "charges": 2, "bonus_charges": 0, "damage": 0, "speed": 1.0, "armor": 0, "armor_per_wave": 0, "shield": 0, "boost": false, "statuses": {}, "reward": false, "reward_choice": -1, "spirit": {}, "pending_spirit": ""})
+		players.append({"id": i, "x": point.x, "z": point.y, "vx": 0.0, "vz": 0.0, "r": 0.43, "mass": 1.2, "hp": 4, "max_hp": 4, "angle": a + PI, "power": 0.15, "spin": 0.0, "flight_spin": 0.0, "ready": false, "charging": false, "ability": false, "charges": 2, "bonus_charges": 0, "damage": 0, "speed": 1.0, "armor": 0, "armor_per_wave": 0, "shield": 0, "boost": false, "statuses": {}, "reward": false, "reward_choice": -1, "spirit": {}, "pending_spirit": ""})
 	Runestones.reset(self)
 	next_wave()
 
@@ -154,7 +154,7 @@ func begin_plan() -> void:
 	Bosses.ensure_counter(self)
 	Effects.spawn_sources(self)
 	for p in players:
-		velocity(p, Vector2.ZERO); p.power = 0.15; p.spin = 0.0; p.flight_spin = 0.0; p.ready = false; p.ability = false; p.boost = false; p.shield = 0; p.ricochets = 0
+		velocity(p, Vector2.ZERO); p.power = 0.15; p.spin = 0.0; p.flight_spin = 0.0; p.ready = false; p.charging = false; p.ability = false; p.boost = false; p.shield = 0; p.ricochets = 0
 		if Effects.frozen(self, p): p.ready = true
 	resolve_deadline = RESOLVE_TIME
 	for e in enemies:
@@ -203,19 +203,21 @@ func command(slot: int, data: Dictionary) -> bool:
 	if phase != "plan" or int(p.hp) <= 0 or Effects.frozen(self, p): return false
 	var action: String = data.get("action", "aim")
 	if action == "ready":
-		p.ready = not bool(p.ready);emit("ready" if p.ready else "cancel",pos(p),slot);return true
+		p.charging = false; p.ready = not bool(p.ready);emit("ready" if p.ready else "cancel",pos(p),slot);return true
 	if action == "ability":
 		if not bool(p.ready) and int(p.charges) > 0:
 			p.ability = not bool(p.ability);emit("ability" if p.ability else "cancel",pos(p),slot)
 		return true
 	if action == "cancel":
 		if p.ready:emit("cancel",pos(p),slot)
-		p.ready = false; return true
+		p.ready = false; p.charging = false; return true
 	if action != "aim" or bool(p.ready): return false
+	if data.has("charging") and not data.charging is bool: return false
 	var a := float(data.get("angle", p.angle))
 	var power := float(data.get("power", p.power))
 	var spin := float(data.get("spin", p.get("spin", 0.0)))
 	if not is_finite(a) or not is_finite(power) or not is_finite(spin): return false
+	p.charging = data.get("charging", p.get("charging", false))
 	p.angle = fposmod(a, TAU); p.power = clampf(power, 0.15, 1.0); p.spin = clampf(spin, -1.0, 1.0)
 	return true
 
@@ -271,6 +273,7 @@ static func curl_velocity(v: Vector2, spin: float, dt: float) -> Vector2:
 func launch() -> void:
 	phase = "resolve"; phase_time = 0.0; resolve_deadline = RESOLVE_TIME; hits.clear();team_contacts.clear()
 	for p in players:
+		p.charging = false
 		if int(p.hp) <= 0: continue
 		p.landed_hit=false;p.rune_used=false;p.clash_used=false;p.flight_spin=0.0;p.ricochets=0
 		if Effects.frozen(self, p): velocity(p, Vector2.ZERO); continue
@@ -616,7 +619,7 @@ func begin_reward() -> void:
 		var j := rng.randi_range(0, i); var swap = keys[i]; keys[i] = keys[j]; keys[j] = swap
 	reward_options = keys.slice(0, 3)
 	for p in players:
-		p.reward = false; p.reward_choice = -1; p.ready = false
+		p.reward = false; p.reward_choice = -1; p.ready = false; p.charging = false
 
 func choose_reward(slot: int, choice: int) -> bool:
 	if phase != "reward" or slot < 0 or slot >= players.size() or choice < 0 or choice >= reward_options.size(): return false

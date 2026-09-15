@@ -103,6 +103,21 @@ footer{display:none}
 .action{width:60px;height:60px}
 }
 
+
+/* Face buttons follow the familiar X-left, B-right, A-bottom diamond. */
+.controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:center}
+.direction-shell{width:100%;max-width:208px;height:auto;aspect-ratio:1}
+.stick{width:100%;height:100%;aspect-ratio:1}
+.dpad{width:100%;height:100%;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:repeat(3,minmax(0,1fr))}
+.actions{position:relative;display:block;width:100%;max-width:208px;aspect-ratio:1;justify-self:end}
+.actions .action{position:absolute;width:38%;height:38%;font-size:clamp(22px,5vw,29px)}
+.actions #x{left:0;top:23%;width:36%;height:36%;font-size:clamp(22px,5vw,29px)}
+.actions #b{right:0;top:23%;background:#774449}
+.actions #a{left:31%;bottom:0;background:#397657}
+#a:before{content:'';position:absolute;inset:-6px;border-radius:50%;background:conic-gradient(#ffe1a0 var(--charge-fill,0deg),transparent 0);mask:radial-gradient(farthest-side,transparent calc(100% - 4px),#000 0);pointer-events:none}
+#charge-value{display:none;position:absolute;bottom:8%;left:0;right:0;font-size:12px;line-height:1;font-weight:650}
+#a.charging{padding-bottom:12px}#a.charging #charge-value{display:block}#a.full-charge{box-shadow:0 1px 0 #080e15,0 0 22px #ffe1a077}
+@media(max-height:500px){.direction-shell,.actions{max-width:190px}.controls{align-items:end}.shoulder{height:48px}.stick{height:100%;width:100%}}
 </style>
 </head>
 <body><main>
@@ -115,7 +130,7 @@ footer{display:none}
 <div class="shoulders"><button class="shoulder" id="l1" aria-label="L1 · Подкрутка влево">L1</button><button class="shoulder" id="r1" aria-label="R1 · Подкрутка вправо">R1</button></div>
 <div class="controls">
 <div class="direction-shell"><button class="stick" id="stick" aria-label="Стик направления"><span class="stick-knob" id="stick-knob"></span></button><div id="dpad" hidden class="dpad" role="group" aria-label="Направление"><button class="direction" id="up" aria-label="Вверх">↑</button><button class="direction" id="left" aria-label="Влево">←</button><span class="dpad-center" aria-hidden="true">✥</span><button class="direction" id="right" aria-label="Вправо">→</button><button class="direction" id="down" aria-label="Вниз">↓</button></div>
-</div><div class="actions"><button class="action" id="x" aria-label="X · Умение">X</button><button class="action" id="b" aria-label="B · Отмена">B</button><button class="action" id="a" aria-label="A · Удерживать для броска">A</button></div>
+</div><div class="actions"><button class="action" id="x" aria-label="X · Умение">X</button><button class="action" id="b" aria-label="B · Отмена">B</button><button class="action" id="a" aria-label="A · Удерживать для броска">A<span id="charge-value" aria-hidden="true"></span></button></div>
 </div></div>
 <p id="hint">Смотрите на ТВ</p>
 </section>

@@ -53,7 +53,6 @@ func _process(dt: float) -> void:
 				"slots": slots = data.slots.map(func(slot): return int(slot))
 				"roster": roster = data.players
 				"error": connection_error.emit(data.message)
-				"ended": connection_error.emit(data.message)
 			message.emit(data)
 	elif state == WebSocketPeer.STATE_CLOSED:
 		try_next_address("Связь с сервером потеряна. Проверьте адрес и подключение.")

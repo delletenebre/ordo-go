@@ -20,14 +20,14 @@ test('all reward art and stylesheet are served through explicit routes', async (
 });
 
 class Element {
-  style={};attrs={};textContent='';value='001234';hidden=false;disabled=false;
+  style={setProperty(k,v){this[k]=v;}};attrs={};textContent='';value='001234';hidden=false;disabled=false;
   classList={toggle(){}};
   focus(){} setAttribute(k,v){this.attrs[k]=v;}
   setPointerCapture(){}
   getBoundingClientRect(){return {left:0,top:0,width:180,height:180};}
 }
 async function controller(native=false) {
-  const elements=new Map(), listeners=new Map(), timers=[], sockets=[];
+  const elements=new Map(), listeners=new Map(), timers=[], frames=[], sockets=[];
   const get=id=>{if(!elements.has(id))elements.set(id,new Element());return elements.get(id);};
   let now=0;
   class Socket {
@@ -36,7 +36,7 @@ async function controller(native=false) {
   }
   const listen=(key,fn)=>listeners.set(key,fn);
   const context={document:{getElementById:get,querySelector:get,body:new Element(),addEventListener:listen},
-    window:{addEventListener:listen},setInterval:fn=>timers.push(fn),
+    window:{addEventListener:listen},setInterval:fn=>timers.push(fn),requestAnimationFrame:fn=>frames.push(fn),
     localStorage:{getItem(){},setItem(k,v){context.savedMode=v;}},WebSocket:Socket,
     location:{protocol:'http:',host:'192.168.1.20:8787',hostname:'192.168.1.20'},
     performance:{now:()=>now},console,ROOM_PATTERN,normalizeCode,
@@ -51,7 +51,7 @@ async function controller(native=false) {
     connect(){get('connect').onclick();sockets[0].onopen();message({type:'joined',slots:[1]});},
     update(){message({type:'snapshot',state});},message,
     down(id,pointer=1){get(id).onpointerdown(event(pointer));},up(id,pointer=1){get(id).onpointerup(event(pointer));},
-    advance(ms){now+=ms;timers.forEach(fn=>fn());},
+    advance(ms){now+=ms;timers.forEach(fn=>fn());frames.splice(0).forEach(fn=>fn());},
     commands(){return sockets[0].sent.filter(m=>m.type==='command');}
   };
 }
@@ -81,11 +81,16 @@ test('analog aiming and A charging work with independent fingers; B cancels and 
   c.down('a',22);c.advance(300);
   assert.ok(Math.abs(c.commands().at(-1).data.angle-Math.atan2(22,55))<1e-8);
   assert.ok(Math.abs(c.commands().at(-1).data.power-.575)<1e-8);
+  assert.equal(c.commands().at(-1).data.charging,true);
+  assert.equal(c.get('charge-value').textContent,'58%');
+  assert.ok(Math.abs(parseFloat(c.get('a').style['--charge-fill'])-207)<1e-8);
   c.get('stick').onpointermove(c.event(11,45,50));c.advance(50);
   assert.ok(Math.abs(c.commands().at(-1).data.angle-Math.atan2(-40,-45))<1e-8);
   c.down('r1',33);assert.ok(c.commands().at(-1).data.spin>0);
   c.down('l1',44);assert.equal(c.commands().at(-1).data.spin,0);
   c.advance(400);c.up('a',22);
+  assert.equal(c.get('charge-value').textContent,'');
+  assert.equal(c.commands().at(-2).data.charging,false);
   assert.equal(c.commands().at(-2).data.power,1);assert.equal(c.commands().at(-1).data.action,'ready');
   assert.ok(c.commands().every(m=>m.slot===1 && m.data.turn===4));
   c.state.players[3].ready=true;c.update();c.down('b');assert.equal(c.commands().at(-1).data.action,'cancel');
@@ -130,4 +135,26 @@ test('reward navigation focuses the TV without selecting; A confirms and B cance
   c.down('b');c.up('b');assert.equal(c.commands().at(-1).data.action,'cancel');
   c.state.turn++;c.state.wave++;c.state.phase='plan';c.update();
   c.down('a');c.advance(300);c.up('a');assert.equal(c.commands().at(-1).data.action,'ready');
+});
+
+
+test('room lobby keeps browser connected and clears previous match controls', async () => {
+  const c = await controller(); c.connect(); c.update();
+  c.down('a'); c.advance(100);
+  c.message({type:'lobby'});
+  assert.equal(c.sockets.length, 1);
+  assert.equal(c.get('join').style.display, 'none');
+  assert.equal(c.get('pad').style.display, 'flex');
+  assert.equal(c.get('a').disabled, true);
+  const count = c.commands().length;
+  c.up('a'); c.advance(1000);
+  assert.equal(c.commands().length, count, 'Old held shot does not fire in lobby');
+  c.state.turn = 1; c.update();
+  assert.equal(c.get('a').disabled, false);
+  c.down('a'); c.advance(300); c.up('a');
+  assert.equal(c.commands().at(-1).data.action, 'ready');
+  assert.equal(c.commands().at(-1).data.turn, 1);
+  c.message({type:'ended', message:'Ведущий завершил комнату.'});
+  assert.equal(c.get('pad').style.display, 'none');
+  assert.equal(c.get('join').style.display, 'block');
 });

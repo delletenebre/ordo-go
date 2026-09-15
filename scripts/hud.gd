@@ -614,7 +614,10 @@ func draw_end() -> void:
 	text_at("РАССВЕТ НАД ПЕРЕВАЛОМ" if game.sim.phase == "win" else "ПОСЛЕДНЯЯ ИСКРА", Vector2(0, 422), 48, cream, HORIZONTAL_ALIGNMENT_CENTER, 1600)
 	text_at("Вы сохранили огонь. Эта история останется в узоре." if game.sim.phase == "win" else game.sim.last_reason, Vector2(0, 475), 22, muted, HORIZONTAL_ALIGNMENT_CENTER, 1600)
 	text_at("ВОЛНА %d  ·  ПОБЕЖДЕНО %d  ·  ХОДОВ %d" % [game.sim.wave, game.sim.kills, game.sim.turn], Vector2(0, 540), 20, gold, HORIZONTAL_ALIGNMENT_CENTER, 1600)
-	text_at("Enter / A — вернуться к очагу", Vector2(0, 626), 23, cream, HORIZONTAL_ALIGNMENT_CENTER, 1600)
+	var next := "Enter / A — вернуться к очагу"
+	if game.online:
+		next = "Enter / A — в комнату для новой игры" if game.net.is_host else "Ждём ведущего · вы остаётесь в комнате"
+	text_at(next, Vector2(0, 626), 23, cream, HORIZONTAL_ALIGNMENT_CENTER, 1600)
 
 func draw_help() -> void:
 	draw_rect(Rect2(0,110,1600,890),Color(0.025,0.04,0.06,0.97))

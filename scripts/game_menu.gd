@@ -13,6 +13,7 @@ var pages: Dictionary = {}
 var page_controls: Dictionary = {}
 var back_buttons: Dictionary = {}
 var join_choice: Button
+var leave_button: Button
 var server_return := "network"
 var busy := false
 var code_editing := false
@@ -92,7 +93,7 @@ func build(owner) -> void:
 	hud.room_label=hud.label_node("",lobby,56,hud.cream);hud.room_label.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER
 	match_address=hud.label_node("",lobby,20,hud.gold);match_address.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 	hud.start_button=action("lobby","НАЧАТЬ ОБЩИЙ МАТЧ",func(): hud.game.play_connected())
-	action("lobby","ПОКИНУТЬ КОМНАТУ",func(): hud.game.net.disconnect_room();busy=false;show_screen("network"))
+	leave_button=action("lobby","ЗАВЕРШИТЬ КОМНАТУ",func(): hud.game.leave_room();busy=false;show_screen("network"))
 	var server=page("server","СЕРВЕР","Введите адрес сервера. Все ТВ общей игры должны использовать один сервер.")
 	hud.url_field=LineEdit.new();hud.url_field.text=hud.game.relay_url;hud.url_field.custom_minimum_size.y=52
 	hud.url_field.max_length=253;hud.url_field.virtual_keyboard_enabled=false
@@ -238,6 +239,7 @@ func refresh() -> void:
 	if screen=="lobby":
 		hud.start_button.visible=hud.game.net.is_host
 		hud.start_button.disabled=hud.game.net.roster.is_empty()
+		leave_button.text="ЗАВЕРШИТЬ КОМНАТУ" if hud.game.net.is_host else "ПОКИНУТЬ КОМНАТУ"
 	for slot in roster_buttons.size():
 		var button:=roster_buttons[slot]
 		var available:=local_seat_for_slot(slot)>=0 and screen not in ["join","server"]

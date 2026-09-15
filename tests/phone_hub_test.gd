@@ -59,12 +59,21 @@ func run() -> void:
 	if not await until(func():return not state_a.is_empty() and not state_b.is_empty()):check(false,"Both phones receive match state");await finish();return
 	check(phone_a.room==code_a and phone_b.room==code_b,"Joining shared match never reconnects phones")
 	check(int(state_a.controller_slots[str(phone_a.slots[0])])==1 and int(state_b.controller_slots[str(phone_b.slots[0])])==3,"Phone identities map to P2 and P4 in the shared game")
+	for strength in [.15,.4,.7,1.0]:
+		phone_b.send({"type":"command","slot":phone_b.slots[0],"data":{"action":"aim","turn":state_b.turn,"angle":1.23,"power":strength,"charging":true}})
+		check(await until(func():return is_equal_approx(host.sim.players[3].power,strength) and host.is_charging(3) and guest.is_charging(3)),"Phone hold progressively lights the aim guide on both TVs before release")
+	check(host.shot_charges.is_empty() and guest.shot_charges.is_empty(),"Remote charge feedback does not depend on a local gamepad hold")
+	check(await until(func():return host.hud.charge_full_since.has(3) and guest.hud.charge_full_since.has(3)),"Full remote charge triggers the guide pulse on both TVs")
+	check(await until(func():return bool(state_b.players[3].get("charging",false))),"Phone also receives the authoritative held state")
+	phone_b.send({"type":"command","slot":phone_b.slots[0],"data":{"action":"cancel","turn":state_b.turn}})
+	check(await until(func():return not host.is_charging(3) and not guest.is_charging(3)),"Cancelling a remote hold clears feedback on both TVs")
 	phone_b.send({"type":"command","slot":phone_b.slots[0],"data":{"action":"aim","turn":state_b.turn,"angle":1.23,"power":.8,"spin":-.4}})
 	if not await until(func():return is_equal_approx(host.sim.players[3].angle,1.23)):
 		check(false,"Guest phone aims through its TV to authoritative host")
 	phone_b.send({"type":"command","slot":phone_b.slots[0],"data":{"action":"ability","turn":state_b.turn}})
 	phone_b.send({"type":"command","slot":phone_b.slots[0],"data":{"action":"ready","turn":state_b.turn}})
 	check(await until(func():return host.sim.players[3].ready and host.sim.players[3].ability),"Guest phone controls ability and readiness")
+	check(not host.is_charging(3),"Release leaves no held-charge animation")
 	check(is_equal_approx(host.sim.players[3].power,.8) and is_equal_approx(host.sim.players[3].spin,-.4),"Guest phone power and spin survive both network hops")
 	check(not host.sim.players[0].ready and not host.sim.players[1].ready and not host.sim.players[2].ready,"Guest phone cannot control other players")
 	phone_a.send({"type":"command","slot":phone_a.slots[0],"data":{"action":"ready","turn":state_a.turn}})
@@ -83,7 +92,15 @@ func run() -> void:
 	check(phone_a.connected and phone_b.connected and phone_a.room==code_a and phone_b.room==code_b,"Phones remain connected between matches")
 	phone_b.send({"type":"avatar","slot":phone_b.slots[0],"avatar":"bugu"})
 	check(await until(func():return guest.local_avatars[1]=="bugu"),"Phone can change avatar after shared match ends")
+	var match_code: String=host.net.room
+	host.play_connected()
+	check(await until(func():return not state_a.is_empty() and not state_b.is_empty()),"Host starts another shared match with the same phones")
+	check(host.net.room==match_code and guest.net.room==match_code and phone_a.room==code_a and phone_b.room==code_b,"TV and phone rooms survive together")
+	check(int(state_b.controller_slots[str(phone_b.slots[0])])==3 and host.sim.players[3].avatar=="bugu","Restart preserves phone mapping and updated avatar")
+	host.return_menu()
+	check(await until(func():return host.in_menu and guest.in_menu and state_b.is_empty()),"Second shared match returns to waiting")
 	# A later standalone game reuses exactly the same phone controller connection.
+	guest.leave_room()
 	guest.on_pad_connection(20,false)
 	guest.play_connected()
 	check(await until(func():return not state_b.is_empty() and state_b.players.size()==1),"Same phone plays alone in the next local game without reconnecting")

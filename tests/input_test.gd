@@ -25,6 +25,7 @@ func run() -> void:
 	check(is_equal_approx(game.sim.players[0].power, .15), "Charge starts at minimum")
 	game.read_continuous_input(.3)
 	check(is_equal_approx(game.sim.players[0].power, .575), "Half hold gives interpolated power")
+	check(bool(game.sim.snapshot().players[0].get("charging",false)), "Native hold is included in snapshots for other TVs")
 	key(KEY_SPACE, true, true)
 	check(is_equal_approx(game.sim.players[0].power, .575), "Key repeat does not restart charge")
 	var click := InputEventMouseButton.new(); click.button_index = MOUSE_BUTTON_LEFT; click.pressed = true; click.position = Vector2(1000,400)
@@ -47,10 +48,11 @@ func run() -> void:
 	key(KEY_SPACE); game.read_continuous_input(.3); key(KEY_BACKSPACE); key(KEY_SPACE, false)
 	check(not game.sim.players[0].ready and not game.is_charging(0), "Cancel while holding prevents release confirmation")
 	key(KEY_SPACE); key(KEY_H); check(game.hud.help_open and game.shot_charges.is_empty(), "Help opens and drops held charge")
+	check(not game.sim.players[0].charging, "Help clears replicated charge before hiding the guide")
 	key(KEY_ESCAPE); key(KEY_SPACE, false)
 	check(not game.hud.help_open and not game.in_menu and not game.sim.players[0].ready, "Release after help does not fire")
 	key(KEY_SPACE); game._notification(Node.NOTIFICATION_APPLICATION_FOCUS_OUT); key(KEY_SPACE, false)
-	check(not game.sim.players[0].ready, "Focus loss cancels held shot")
+	check(not game.sim.players[0].ready and not game.sim.players[0].charging, "Focus loss cancels held shot and replicated feedback")
 	key(KEY_SPACE); game.sim.begin_plan(); key(KEY_SPACE, false)
 	check(not game.sim.players[0].ready and game.shot_charges.is_empty(), "Old turn release cannot confirm next turn")
 	game.keyboard_seat = false; game.run_seats = [0,1]; game.pad_slots = {10:0, 11:1}
@@ -82,6 +84,7 @@ func run() -> void:
 	pad(11,JOY_BUTTON_A); pad(11,JOY_BUTTON_DPAD_LEFT); game.on_pad_connection(11,false); pad(11,JOY_BUTTON_A,false)
 	check(game.pad_aim_direction(11)==Vector2.ZERO,"Disconnect clears only that controller aim")
 	check(not game.sim.players[1].ready and game.shot_charges.is_empty(), "Disconnect cancels charge")
+	check(not game.sim.players[1].charging, "Disconnected gamepad stops remote feedback")
 	game.sim.begin_plan()
 	var actual_net = game.net
 	var recorder := RecordingNetwork.new(); game.net = recorder; game.online = true
@@ -89,6 +92,7 @@ func run() -> void:
 	game.sim.players[0].power = .2 # Simulate an older host snapshot arriving before release.
 	game.release_charge(-1)
 	var aim: Dictionary = recorder.packets[-2].data
+	check(not bool(aim.get("charging",true)),"Final network aim clears holding while preserving final power")
 	check(aim.action=="aim" and aim.has("angle") and aim.has("spin") and is_equal_approx(aim.power,.575),"Network release flushes complete final aim despite older power snapshot")
 	check(recorder.packets[-1].data.action=="ready" and recorder.packets[-1].data.turn==aim.turn,"Network confirms after final aim in same turn")
 	game.net = actual_net; game.online = false

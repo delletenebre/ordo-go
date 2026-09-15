@@ -18,10 +18,10 @@ const command = (action, extra = {}) => {
 };
 const frozen = () => Boolean(player()?.statuses?.frozen && player().freeze_turn === state.turn);
 const canAim = () => state?.phase === 'plan' && player()?.hp > 0 && !player().ready && !frozen();
-const sendAim = () => { command('aim', { angle, power, spin }); aimDirty = false; };
+const sendAim = () => { command('aim', { angle, power, spin, charging: chargeStarted !== null }); aimDirty = false; };
 function clearHeld(cancel = false) {
   const charging = chargeStarted !== null;
-  resetStick(); held.clear(); chargeStarted = null; aimDirty = false;
+  resetStick(); held.clear(); chargeStarted = null; aimDirty = false; renderCharge();
   for (const id of buttons) $(id).classList.toggle('pressed', false);
   if (cancel && charging) command('cancel');
 }
@@ -53,9 +53,9 @@ $('connect').onclick = () => {
     if (msg.type === 'roster') {
       if (!msg.started) status(connection.controller ? 'Контроллер подключён. Ждём игру на ТВ.' : `${msg.code} · ${msg.players.map(player => player.name).join(', ')} · Ждём ведущего`);
     }
-    if (msg.type === 'controller_wait') {
+    if (msg.type === 'controller_wait' || msg.type === 'lobby') {
       clearHeld(); state = null; phaseKey = ''; render();
-      status('Контроллер подключён. Ждём новую игру на ТВ.');
+      status(connection.controller ? 'Контроллер подключён. Ждём новую игру на ТВ.' : 'Вы в комнате. Ждём новую игру от ведущего.');
     }
     if (msg.type === 'snapshot') { state = msg.state; render(); }
   };
@@ -73,9 +73,9 @@ function press(id, pointer) {
     if (id === 'b') command('cancel');
     return;
   }
-  if (id === 'b') { chargeStarted = null; command('cancel'); return; }
+  if (id === 'b') { chargeStarted = null; renderCharge(); command('cancel'); return; }
   if (!canAim()) return;
-  if (id === 'a') { chargeStarted = performance.now(); power = .15; sendAim(); }
+  if (id === 'a') { chargeStarted = performance.now(); power = .15; renderCharge(); sendAim(); }
   if (id === 'x') command('ability');
   if (id === 'l1' || id === 'r1') {
     spin = held.has('l1') && held.has('r1') ? 0 : Math.max(-1, Math.min(1, spin + (id === 'l1' ? -.12 : .12)));
@@ -95,9 +95,9 @@ function release(id, pointer, cancelled = false) {
   if (id === 'a' && chargeStarted !== null) {
     if (!cancelled && canAim()) {
       power = .15 + .85 * Math.min(1, (performance.now() - chargeStarted) / 600);
-      sendAim(); command('ready');
+      chargeStarted = null; sendAim(); command('ready');
     } else if (cancelled) command('cancel');
-    chargeStarted = null;
+    chargeStarted = null; renderCharge();
   }
   if (canAim()) aimDirection();
 }
@@ -177,6 +177,17 @@ $('stick').onkeyup = event => {
 };
 try { if (localStorage.getItem('ordo-control-mode') === 'arrows') setMode('arrows'); } catch {}
 
+function renderCharge() {
+  const charging = chargeStarted !== null && canAim();
+  const percent = charging ? 15 + 85 * Math.min(1, (performance.now() - chargeStarted) / 600) : 0;
+  $('a').style.setProperty('--charge-fill', `${percent * 3.6}deg`);
+  $('a').classList.toggle('charging', charging);
+  $('a').classList.toggle('full-charge', charging && percent >= 100);
+  $('charge-value').textContent = charging ? `${Math.round(percent)}%` : '';
+}
+function animateCharge() { renderCharge(); requestAnimationFrame(animateCharge); }
+requestAnimationFrame(animateCharge);
+
 window.addEventListener('blur', () => clearHeld(true));
 window.addEventListener('pagehide', () => clearHeld(true));
 document.addEventListener('visibilitychange', () => { if (document.hidden) clearHeld(true); });
@@ -207,6 +218,7 @@ function render() {
     const enabled = reward ? ['left', 'right', 'a', 'b'].includes(id) : id === 'b' ? Boolean(p && state.phase === 'plan' && p.hp > 0 && !frozen()) : canAim() && (id !== 'x' || p.charges > 0);
     $(id).disabled = !enabled;
   }
+  if (!canAim() && chargeStarted !== null) clearHeld();
   $('stick').disabled = !canAim() && !reward;
   $('x').setAttribute('aria-pressed', String(Boolean(p?.ability)));
   $('hint').textContent = !p ? 'Смотрите на ТВ' : reward ? '← → выбрать · A подтвердить · B отменить' : 'A удерживать и отпустить · B отменить\nL1 / R1 подкрутка · X умение';

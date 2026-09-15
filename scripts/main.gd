@@ -94,7 +94,7 @@ func start_local(count: int, mode: int) -> void:
 	start_game(count, mode)
 
 func start_game(count: int, mode: int) -> void:
-	shot_charges.clear(); spin_buttons.clear(); pad_aim_axes.clear(); pad_aim_buttons.clear(); aim_clock = 0.0
+	clear_charges(); spin_buttons.clear(); pad_aim_axes.clear(); pad_aim_buttons.clear(); aim_clock = 0.0
 	run_seats=active_local_seats().slice(0,local_slots.size())
 	selected = int(local_slots[0]) if not local_slots.is_empty() else 0; sim.start(count, mode)
 	for player in sim.players:
@@ -108,7 +108,23 @@ func start_game(count: int, mode: int) -> void:
 	if focus != null: focus.release_focus()
 
 func return_menu() -> void:
-	shot_charges.clear(); spin_buttons.clear(); pad_aim_axes.clear(); pad_aim_buttons.clear()
+	if net.connected and net.room != "":
+		if net.is_host: net.send({"type":"lobby"})
+		else:
+			pad_notice = "ЖДЁМ ВЕДУЩЕГО · КОМНАТА СОХРАНЕНА"; pad_notice_time = 4.0
+		return
+	leave_room()
+
+func enter_lobby() -> void:
+	online = false; in_menu = true; run_seats.clear(); reward_choices.clear()
+	clear_charges(); spin_buttons.clear(); pad_aim_axes.clear(); pad_aim_buttons.clear()
+	if controller_hub != null: controller_hub.set_playing(false)
+	hud.help_open = false
+	hud.game_menu.show_screen("lobby"); hud.update_lobby()
+	sync_lobby_seats()
+
+func leave_room() -> void:
+	clear_charges(); spin_buttons.clear(); pad_aim_axes.clear(); pad_aim_buttons.clear()
 	net.disconnect_room(); online = false; in_menu = true; roster_known.clear()
 	if controller_hub != null: controller_hub.set_playing(false)
 	hud.start_button.hide(); hud.room_label.text = ""; hud.message_label.text = ""
@@ -160,6 +176,7 @@ func send_command(slot: int, data: Dictionary) -> void:
 		data.angle = data.get("angle", player.angle)
 		data.power = data.get("power", player.power)
 		data.spin = data.get("spin", player.get("spin", 0.0))
+		data.charging = data.get("charging", local_charge_active(slot))
 	command_count += 1
 	if data.action == "reward_focus":
 		apply_reward_focus(slot, data)
@@ -181,13 +198,29 @@ func charge_valid(charge: Dictionary) -> bool:
 	var slot: int = charge.slot
 	return not in_menu and not hud.help_open and sim.phase == "plan" and charge.turn == sim.turn and local_slots.has(slot) and slot < sim.players.size() and sim.players[slot].hp > 0 and not sim.players[slot].ready
 
-func is_charging(slot: int) -> bool:
+func local_charge_active(slot: int) -> bool:
 	for charge in shot_charges.values():
 		if charge.slot == slot and charge_valid(charge): return true
 	return false
 
+# The HUD reads the replicated hold state as well as locally owned input.
+func is_charging(slot: int) -> bool:
+	if in_menu or sim.phase != "plan" or slot < 0 or slot >= sim.players.size(): return false
+	var player: Dictionary = sim.players[slot]
+	if player.hp <= 0 or player.ready or sim.Effects.frozen(sim, player): return false
+	return local_charge_active(slot) or bool(player.get("charging", false))
+
+func stop_charge(source: int) -> void:
+	if not shot_charges.has(source): return
+	var charge: Dictionary = shot_charges[source]
+	shot_charges.erase(source)
+	if charge_valid(charge): send_command(charge.slot, {"action":"aim", "charging":false})
+
+func clear_charges() -> void:
+	for source in shot_charges.keys(): stop_charge(source)
+
 func begin_charge(source: int, slot: int) -> void:
-	if shot_charges.has(source) or is_charging(slot): return
+	if shot_charges.has(source) or local_charge_active(slot): return
 	var charge := {"slot": slot, "turn": sim.turn, "elapsed": 0.0}
 	if not charge_valid(charge): return
 	shot_charges[source] = charge
@@ -374,7 +407,7 @@ func register_pad(device: int) -> bool:
 
 func on_pad_connection(device: int, connected: bool) -> void:
 	if connected or not pad_slots.has(device): return
-	shot_charges.erase(device); spin_buttons.erase(device); pad_aim_axes.erase(device); pad_aim_buttons.erase(device)
+	stop_charge(device); spin_buttons.erase(device); pad_aim_axes.erase(device); pad_aim_buttons.erase(device)
 	var slot: int = int(pad_slots[device]); pad_slots.erase(device)
 	var index:=run_seats.find(slot)
 	var player_id: int = slot if in_menu or index<0 else int(local_slots[index])
@@ -475,7 +508,7 @@ func _input(event: InputEvent) -> void:
 			if event.physical_keycode in [KEY_SPACE, KEY_ENTER]: send_command(selected, {"action": "reward", "choice": choice})
 			get_viewport().set_input_as_handled(); return
 		match event.physical_keycode:
-			KEY_H: shot_charges.clear(); spin_buttons.clear(); pad_aim_axes.clear(); pad_aim_buttons.clear(); hud.help_open = not hud.help_open;arena.sound("ui")
+			KEY_H: clear_charges(); spin_buttons.clear(); pad_aim_axes.clear(); pad_aim_buttons.clear(); hud.help_open = not hud.help_open;arena.sound("ui")
 			KEY_M: arena.muted = not arena.muted
 			KEY_ESCAPE:
 				if hud.help_open: hud.help_open = false
@@ -493,7 +526,7 @@ func _input(event: InputEvent) -> void:
 		var slot := device_slot(event.device)
 		if slot < 0: return
 		if event.button_index == JOY_BUTTON_START:
-			shot_charges.clear(); spin_buttons.clear(); pad_aim_axes.clear(); pad_aim_buttons.clear()
+			clear_charges(); spin_buttons.clear(); pad_aim_axes.clear(); pad_aim_buttons.clear()
 			hud.help_open = not hud.help_open
 			get_viewport().set_input_as_handled(); return
 		if hud.help_open: return
@@ -555,6 +588,8 @@ func on_network(data: Dictionary) -> void:
 			hud.update_lobby()
 		"start":
 			online = true; start_game(int(data.count), int(data.difficulty))
+		"lobby":
+			enter_lobby()
 		"command":
 			if online and net.is_host:
 				if data.data.get("action") == "reward_focus": apply_reward_focus(int(data.slot), data.data)
@@ -563,11 +598,11 @@ func on_network(data: Dictionary) -> void:
 			if online and not net.is_host: sim.restore(data.state)
 		"ended":
 			var reason: String = data.message
-			return_menu(); hud.message_label.text = reason
+			leave_room(); hud.game_menu.connection_failed(reason)
 
 func on_error(reason: String) -> void:
 	if not in_menu and online:
-		return_menu()
+		leave_room()
 	hud.game_menu.connection_failed(reason)
 
 func demo_play() -> void:
@@ -588,7 +623,7 @@ func demo_play() -> void:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
-		shot_charges.clear(); spin_buttons.clear(); pad_aim_axes.clear(); pad_aim_buttons.clear()
+		clear_charges(); spin_buttons.clear(); pad_aim_axes.clear(); pad_aim_buttons.clear()
 	if what == NOTIFICATION_WM_CLOSE_REQUEST:
 		if arena != null: arena.stop_audio()
 		if net != null: net.disconnect_room()

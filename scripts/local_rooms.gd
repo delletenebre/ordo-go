@@ -22,18 +22,25 @@ func roster(room: Dictionary) -> void:
 			players.append({"slot":peer.slots[i], "avatar":peer.avatars[i], "name":Avatars.title(peer.avatars[i]), "owner":str(id), "host":id==room.host})
 	broadcast(room, {"type":"roster", "code":room.code, "started":room.started, "players":players})
 
+func back_to_lobby(room: Dictionary) -> void:
+	room.started = false
+	broadcast(room, {"type":"lobby"})
+	roster(room)
+
 func leave(id: int) -> void:
 	if not peers.has(id): return
 	var code: String = peers[id].room
 	peers[id].room = ""
 	if not rooms.has(code): return
 	var room: Dictionary = rooms[code]
-	if room.host == id or room.started:
-		broadcast(room, {"type":"ended", "message":"Участник отключился. Соберите общую игру заново."}, id)
+	if room.host == id:
+		broadcast(room, {"type":"ended", "message":"Ведущий завершил комнату."}, id)
 		for other in room.peers: peers[other].room = ""
 		rooms.erase(code)
 	else:
-		room.peers.erase(id); roster(room)
+		room.peers.erase(id)
+		if room.started: back_to_lobby(room)
+		else: roster(room)
 
 func remove_peer(id: int) -> void:
 	leave(id); peers.erase(id)
@@ -122,6 +129,9 @@ func receive(id: int, data: Dictionary) -> void:
 			if id!=room.host or not room.controllerHub or not data.get("playing") is bool: return
 			room.playing=data.playing
 			if not room.playing: broadcast(room,{"type":"controller_wait"},id);roster(room)
+		"lobby":
+			if id!=room.host or room.controllerHub: fail(id,"Вернуть комнату в ожидание может только ведущий."); return
+			if room.started: back_to_lobby(room)
 		"start":
 			if id!=room.host or room.started or room.controllerHub: fail(id,"Начать игру может ведущий."); return
 			var count := 0
@@ -148,6 +158,8 @@ func receive(id: int, data: Dictionary) -> void:
 			if action=="aim":
 				if not number(command.get("angle")) or not number(command.get("power")): return
 				if command.has("spin") and not number(command.spin): return
+				if command.has("charging") and not command.charging is bool: return
+				if command.has("charging"): safe.charging = command.charging
 				safe.angle=command.angle;safe.power=clampf(float(command.power),.15,1.0)
 				if command.has("spin"): safe.spin=clampf(float(command.spin),-1.0,1.0)
 			if action in ["reward","reward_focus"]:

@@ -37,8 +37,9 @@ test('room ownership, two TV snapshots, stale slots, capacity, disconnect', asyn
     phone.send({type:'command',slot:3,data:{action:'reward_focus',turn:1,choice:1}});
     assert.equal((await host.wait('command')).data.choice,1,'Invalid focus never reaches the host');
 
-    tv.send({ type: 'command', slot: 1, data: { action: 'aim', turn: 1, angle: 1.2, power: .575, spin: -8 } });
-    assert.equal((await host.wait('command')).data.spin, -1);
+    tv.send({ type: 'command', slot: 1, data: { action: 'aim', turn: 1, angle: 1.2, power: .575, spin: -8, charging: true } });
+    const holding = await host.wait('command'); assert.equal(holding.data.spin, -1); assert.equal(holding.data.charging,true);
+    tv.send({type:'command',slot:1,data:{action:'aim',turn:1,angle:1.2,power:.575,charging:'invalid'}});
     tv.send({ type: 'command', slot: 1, data: { action: 'aim', turn: 1, angle: 1.2, power: .575, spin: 'invalid' } });
     tv.send({ type: 'command', slot: 1, data: { action: 'aim', turn: 1, angle: 1.2, power: 1, spin: .8 } });
     tv.send({ type: 'command', slot: 1, data: { action: 'ready', turn: 1 } });
@@ -48,7 +49,10 @@ test('room ownership, two TV snapshots, stale slots, capacity, disconnect', asyn
     host.send({ type: 'snapshot', state: snapshot }); assert.deepEqual((await tv.wait('snapshot')).state, snapshot); assert.deepEqual((await phone.wait('snapshot')).state, snapshot);
     tv.send({ type: 'snapshot', state: { fire: 0 } }); await sleep(30);
     assert.equal(host.inbox.some(m => m.type === 'snapshot'), false);
-    tv.ws.close(); assert.equal((await host.wait('ended')).type, 'ended'); assert.equal(relay.rooms.size, 0);
+    tv.ws.close(); await host.wait('lobby'); await phone.wait('lobby');
+    assert.equal(relay.rooms.size, 1); assert.equal(relay.rooms.get(joined.code).started, false);
+    host.send({ type: 'start' }); assert.equal((await host.wait('start')).count, 2);
+    host.ws.close(); await phone.wait('ended'); assert.equal(relay.rooms.size, 0);
   } finally { await relay.close(); }
 });
 test('lobby departures compact slots at start; malformed input rejected', async () => {
@@ -136,5 +140,40 @@ test('two TV households own two avatars each and only edit their own slots', asy
     assert.equal((await host.wait('roster')).players[3].avatar,'janyl');await tv.wait('roster');
     host.send({type:'start'});assert.equal((await host.wait('start')).count,4);await tv.wait('start');
     tv.send({type:'avatar',slot:3,avatar:'bugu'});assert.match((await tv.wait('error')).message,/началом/);
+  } finally { await relay.close(); }
+});
+
+
+test('room survives results and rematches until its host closes it', async () => {
+  const relay = createRelay(); await new Promise(r => relay.http.listen(0, '127.0.0.1', r));
+  const url = `ws://127.0.0.1:${relay.http.address().port}`;
+  try {
+    const host = await client(url); host.send({ type: 'create', count: 2, avatars: ['manas', 'kanykei'] });
+    const { code } = await host.wait('joined');
+    const guest = await client(url); guest.send({ type: 'join', code, count: 1, avatars: ['ilbirs'] });
+    const identity = await guest.wait('joined');
+    for (const phase of ['win', 'lose']) {
+      host.send({ type: 'start' }); assert.equal((await host.wait('start')).count, 3); await guest.wait('start');
+      host.send({ type: 'snapshot', state: { phase, turn: 25 } });
+      assert.equal((await guest.wait('snapshot')).state.phase, phase);
+      guest.send({ type: 'lobby' }); assert.match((await guest.wait('error')).message, /ведущий/);
+      assert.equal(relay.rooms.get(code).started, true);
+      host.send({ type: 'lobby' }); await host.wait('lobby'); await guest.wait('lobby');
+      const room = relay.rooms.get(code);
+      assert.equal(room.started, false); assert.equal(room.snapshot, null);
+      assert.equal(room.peers.get(identity.id), [...room.peers.values()][1]);
+      assert.deepEqual(room.peers.get(identity.id).avatars, ['ilbirs']);
+      assert.deepEqual(room.peers.get(identity.id).slots, [2]);
+      assert.equal(guest.ws.readyState, WebSocket.OPEN);
+      guest.send({ type: 'command', slot: 2, data: { action: 'ready', turn: 25 } });
+      await guest.wait('error');
+      guest.send({ type: 'avatar', slot: 2, avatar: 'ilbirs' });
+      guest.send({ type: 'start' }); assert.match((await guest.wait('error')).message, /ведущий/);
+    }
+    const newcomer = await client(url); newcomer.send({ type: 'join', code, count: 1 });
+    assert.deepEqual((await newcomer.wait('joined')).slots, [3]);
+    host.send({ type: 'start' }); assert.equal((await guest.wait('start')).count, 4);
+    host.send({ type: 'leave' }); await guest.wait('ended'); await newcomer.wait('ended');
+    assert.equal(relay.rooms.size, 0);
   } finally { await relay.close(); }
 });
