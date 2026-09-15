@@ -94,6 +94,8 @@ func http_response(request: String) -> PackedByteArray:
 	if FILES.has(path):
 		resource="res://relay/public/"+FILES[path]
 		mime="text/html" if path=="/" else ("text/css" if path.ends_with(".css") else "text/javascript")
+	elif path in ["/icons/icon-32.png", "/icons/icon-180.png", "/icons/icon-192.png", "/icons/icon-512.png"]:
+		resource="res://assets/icons/web/"+path.get_file();mime="image/png"
 	elif path.begins_with("/avatars/") and path.ends_with(".png") and Avatars.IDS.has(path.trim_prefix("/avatars/").trim_suffix(".png")):
 		resource="res://assets"+path;mime="image/png"
 	elif path.begins_with("/boons/") and path.ends_with(".png") and BOONS.has(path.trim_prefix("/boons/").trim_suffix(".png")):

@@ -25,6 +25,9 @@ var net_clock := 0.0
 var aim_clock := 0.0
 const CHARGE_SECONDS := 0.6
 const MIN_POWER := 0.15
+const PAD_DPAD_TURN_SPEED := 1.5 # Fine adjustment relative to the current aim.
+const PAD_STICK_DEADZONE := 0.25
+const PAD_STICK_TURN_SPEED := 3.0 # Radians per second at full deflection.
 # Each held button owns its slot until release, independently of HUD selection.
 var shot_charges: Dictionary = {}
 var spin_buttons: Dictionary = {}
@@ -281,10 +284,24 @@ func read_continuous_input(dt: float) -> void:
 	for device in pad_slots:
 		var slot := device_slot(device)
 		if slot < 0 or slot >= sim.players.size(): continue
+		# D-pad left/right rotate the existing aim, like the keyboard arrows.
+		# Held D-pad buttons take priority over analog input, even when cancelled.
+		if pad_aim_buttons.has(device):
+			var turn := pad_aim_direction(device).x
+			if turn != 0.0:
+				selected = slot
+				send_command(slot, {"action": "aim", "angle": float(sim.players[slot].angle) + turn * PAD_DPAD_TURN_SPEED * dt})
+			continue
 		var direction := pad_aim_direction(device)
-		if direction.length() > 0.2:
+		if direction.length() > PAD_STICK_DEADZONE:
 			selected = slot
-			send_command(slot, {"action": "aim", "angle": direction.angle()})
+			var angle := smooth_stick_angle(float(sim.players[slot].angle), direction, dt)
+			send_command(slot, {"action": "aim", "angle": angle})
+
+func smooth_stick_angle(current: float, direction: Vector2, dt: float) -> float:
+	# Rescale outside the radial deadzone; small deflections give fine control.
+	var strength := clampf((direction.length() - PAD_STICK_DEADZONE) / (1.0 - PAD_STICK_DEADZONE), 0.0, 1.0)
+	return rotate_toward(current, direction.angle(), PAD_STICK_TURN_SPEED * strength * strength * dt)
 
 func track_pad_aim(event: InputEvent) -> void:
 	if not pad_slots.has(event.device): return

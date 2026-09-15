@@ -15,6 +15,33 @@ func key(code: int, pressed: bool = true, echo: bool = false) -> void:
 func pad(device: int, button: int, pressed: bool = true) -> void:
 	var event := InputEventJoypadButton.new(); event.device = device; event.button_index = button; event.pressed = pressed
 	game._input(event)
+func axis(device: int, code: int, value: float) -> void:
+	var event := InputEventJoypadMotion.new(); event.device = device; event.axis = code; event.axis_value = value
+	game._input(event)
+func check_stick() -> void:
+	game.sim.players[1].angle = 0.0
+	var first_angle: float = game.sim.players[0].angle
+	axis(11, JOY_AXIS_LEFT_Y, .24); game.read_continuous_input(.1)
+	check(is_zero_approx(game.sim.players[1].angle), "Stick drift inside the deadzone does not move aim")
+	axis(11, JOY_AXIS_LEFT_Y, .4); game.read_continuous_input(.1)
+	var fine_angle: float = game.sim.players[1].angle
+	check(fine_angle > 0.0 and fine_angle < .05, "Small stick deflection permits fine aim correction")
+	game.sim.players[1].angle = 0.0
+	axis(11, JOY_AXIS_LEFT_Y, 1.0); game.read_continuous_input(.1)
+	var full_angle: float = game.sim.players[1].angle
+	check(full_angle > fine_angle * 4.0 and full_angle < PI/4, "Full stick turns faster but cannot snap to its target")
+	check(is_equal_approx(game.sim.players[0].angle, first_angle), "Analog aim affects only its controller's player")
+	game.sim.players[1].angle = 0.0
+	for i in 6: game.read_continuous_input(1.0/60.0)
+	check(is_equal_approx(game.sim.players[1].angle, full_angle), "Stick turn speed is independent of frame rate")
+	for i in 60: game.read_continuous_input(1.0/60.0)
+	check(is_equal_approx(game.sim.players[1].angle, PI/2), "Held stick reaches the exact target without overshooting")
+	axis(11, JOY_AXIS_LEFT_Y, 0.0); game.read_continuous_input(.1)
+	check(is_equal_approx(game.sim.players[1].angle, PI/2), "Released stick stops immediately without residual motion")
+	game.sim.players[1].angle = TAU - .1
+	axis(11, JOY_AXIS_LEFT_X, 1.0); game.read_continuous_input(.1)
+	check(is_zero_approx(game.sim.players[1].angle), "Stick takes the short path across the angle wrap")
+	axis(11, JOY_AXIS_LEFT_X, 0.0)
 func run() -> void:
 	game = Main.new(); root.add_child(game)
 	await process_frame
@@ -56,13 +83,21 @@ func run() -> void:
 	key(KEY_SPACE); game.sim.begin_plan(); key(KEY_SPACE, false)
 	check(not game.sim.players[0].ready and game.shot_charges.is_empty(), "Old turn release cannot confirm next turn")
 	game.keyboard_seat = false; game.run_seats = [0,1]; game.pad_slots = {10:0, 11:1}
+	check_stick()
 	var first_angle: float = game.sim.players[0].angle
+	game.sim.players[1].angle = 1.2
 	pad(11,JOY_BUTTON_DPAD_RIGHT); pad(11,JOY_BUTTON_DPAD_DOWN); game.read_continuous_input(.1)
-	check(is_equal_approx(game.sim.players[1].angle,PI/4) and is_equal_approx(game.sim.players[0].angle,first_angle),"Second pad aims diagonally without changing first player")
+	var turned_angle: float = game.sim.players[1].angle
+	check(turned_angle > 1.2 and turned_angle < 1.4 and is_equal_approx(game.sim.players[0].angle,first_angle),"D-pad gradually rotates only its own player from the current aim")
 	pad(11,JOY_BUTTON_DPAD_DOWN,false); game.read_continuous_input(.1)
-	check(is_equal_approx(game.sim.players[1].angle,0),"Releasing one D-pad direction retains the other")
+	check(is_equal_approx(game.sim.players[1].angle - turned_angle, turned_angle - 1.2),"Diagonal D-pad hold does not change rotation speed")
+	turned_angle = game.sim.players[1].angle
+	axis(11, JOY_AXIS_LEFT_X, 1.0)
 	pad(11,JOY_BUTTON_DPAD_LEFT); game.read_continuous_input(.1)
-	check(game.pad_aim_direction(11)==Vector2.ZERO,"Opposite D-pad directions cancel")
+	check(game.pad_aim_direction(11)==Vector2.ZERO and is_equal_approx(game.sim.players[1].angle, turned_angle),"Opposite D-pad directions cancel and suppress stick input")
+	axis(11, JOY_AXIS_LEFT_X, 0.0)
+	pad(11,JOY_BUTTON_DPAD_RIGHT,false); game.read_continuous_input(.1)
+	check(is_equal_approx(game.sim.players[1].angle, 1.35), "D-pad left reverses the gradual rotation")
 	pad(11,JOY_BUTTON_DPAD_LEFT,false); pad(11,JOY_BUTTON_DPAD_RIGHT,false)
 	game.sim.players[1].angle=1.2; game.read_continuous_input(.1)
 	check(is_equal_approx(game.sim.players[1].angle,1.2),"Released D-pad stops issuing aim")

@@ -36,6 +36,7 @@ export function createRelay({ maxRooms = 250 } = {}) {
     for (const key of Object.keys(AVATARS)) files[`/avatars/${key}.png`] = `../../assets/avatars/${key}.png`;
     for (const key of ['stitch','spark','stride','charge','guard','mend']) files[`/boons/${key}.png`] = `../../assets/boons/${key}.png`;
     files['/reward.css'] = 'reward.css';
+    for (const size of [32, 180, 192, 512]) files[`/icons/icon-${size}.png`] = `../../assets/icons/web/icon-${size}.png`;
     if (!files[pathname]) { res.writeHead(404); return res.end('Not found'); }
     try {
       const content = await readFile(new URL(`./public/${files[pathname]}`, import.meta.url));

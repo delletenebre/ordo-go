@@ -53,11 +53,18 @@ func run() -> void:
 		button(game, device, JOY_BUTTON_DPAD_LEFT)
 		game.read_continuous_input(.05)
 		button(game, device, JOY_BUTTON_DPAD_LEFT, false)
-		check(await until(func(): return is_equal_approx(host.sim.players[slot].angle, PI)), "P%d D-pad aim reaches host" % (slot + 1))
+		var dpad_angle := fposmod(float(untouched[slot]) - 1.5 * .05, TAU)
+		check(await until(func(): return is_equal_approx(host.sim.players[slot].angle, dpad_angle)), "P%d gradual D-pad rotation reaches host" % (slot + 1))
 		for other in 4:
 			if other != slot: check(is_equal_approx(host.sim.players[other].angle, untouched[other]), "P%d does not aim P%d" % [slot+1,other+1])
 		axis(game, device, JOY_AXIS_LEFT_X, .7); axis(game, device, JOY_AXIS_LEFT_Y, .7)
 		game.read_continuous_input(.05)
+		var partial_angle: float = game.sim.players[slot].angle
+		check(absf(angle_difference(dpad_angle, partial_angle)) <= .15 + .0001 and not is_equal_approx(partial_angle, PI/4), "P%d stick starts with a bounded turn" % (slot + 1))
+		check(await until(func(): return is_equal_approx(host.sim.players[slot].angle, partial_angle)), "P%d partial analog turn reaches host" % (slot + 1))
+		for frame in 30:
+			game.read_continuous_input(.05)
+			await create_timer(.05).timeout
 		axis(game, device, JOY_AXIS_LEFT_X, 0); axis(game, device, JOY_AXIS_LEFT_Y, 0)
 		check(await until(func(): return is_equal_approx(host.sim.players[slot].angle, PI/4)), "P%d analog aim reaches host" % (slot + 1))
 		await snapshot()
